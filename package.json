@@ -1,0 +1,72 @@
+{
+  "name": "amazing-interview-cheatsheet",
+  "productName": "神奇面试小抄",
+  "version": "0.1.0",
+  "description": "你的 AI 面试辅助桌面应用",
+  "main": "./out/main/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "tsc --noEmit && electron-vite build",
+    "package": "npm run build && electron-builder",
+    "package:mac": "npm run build && electron-builder --mac",
+    "package:win": "npm run build && electron-builder --win",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@heroui/react": "^3.2.4",
+    "@heroui/styles": "^3.2.4",
+    "audiotee": "^0.0.7",
+    "lucide-react": "^1.31.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@swc/core": "^1.15.47",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.10.13",
+    "@types/react": "^19.2.9",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3",
+    "vite": "^7.3.6"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "build": {
+    "appId": "com.amazing-interview-cheatsheet",
+    "productName": "神奇面试小抄",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "node_modules/audiotee/bin/audiotee",
+        "to": "audiotee"
+      }
+    ],
+    "artifactName": "${name}-${version}-${os}-${arch}.${ext}",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "extendInfo": {
+        "NSAudioCaptureUsageDescription": "用于获取会议软件的系统音频并实时转换为面试文字记录",
+        "NSMicrophoneUsageDescription": "用于获取会议软件的系统音频并实时转换为面试文字记录"
+      },
+      "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    }
+  }
+}
