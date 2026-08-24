@@ -11,10 +11,7 @@ import { AudioTee, type AudioChunk } from "audiotee";
 import { join } from "node:path";
 
 type SystemAudioCaptureMode =
-  | "core-audio"
-  | "screen-capture"
-  | "loopback"
-  | "unsupported";
+  "core-audio" | "screen-capture" | "loopback" | "unsupported";
 
 type PermissionKind = "microphone" | "screen";
 
@@ -141,6 +138,13 @@ function configurePermissionHandlers() {
     capture.removeAllListeners("data");
     await capture.stop();
     capture.removeAllListeners();
+  });
+
+  ipcMain.handle("app:set-window-title", (event, title: string) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (window && title.trim()) {
+      window.setTitle(title.trim());
+    }
   });
 }
 

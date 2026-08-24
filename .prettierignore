@@ -1,0 +1,7 @@
+dist
+out
+node_modules
+.heroui-docs
+package-lock.json
+AGENTS.md
+CLAUDE.md

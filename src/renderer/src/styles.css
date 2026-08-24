@@ -4,15 +4,15 @@
 :root,
 [data-theme="light"] {
   --background: oklch(0.97 0 0);
-  --foreground: oklch(0.12 0 0);
+  --foreground: rgb(23, 23, 23);
   --surface: oklch(1 0 0);
   --surface-foreground: var(--foreground);
   --overlay: oklch(1 0 0);
   --overlay-foreground: var(--foreground);
-  --accent: oklch(0.12 0 0);
+  --accent: var(--foreground);
   --accent-foreground: oklch(1 0 0);
-  --focus: oklch(0.12 0 0);
-  --link: oklch(0.12 0 0);
+  --focus: var(--foreground);
+  --link: var(--foreground);
   --field-background: oklch(0.96 0 0);
   --field-border: oklch(0.88 0 0);
   --radius: 0.75rem;
@@ -34,7 +34,11 @@
   body {
     overflow: hidden;
     font-family:
-      Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system,
+      Inter,
+      "PingFang SC",
+      "Microsoft YaHei",
+      system-ui,
+      -apple-system,
       sans-serif;
     background: var(--background);
     color: var(--foreground);
@@ -42,5 +46,11 @@
 
   button {
     cursor: pointer;
+  }
+}
+
+@layer components {
+  .button {
+    @apply rounded;
   }
 }

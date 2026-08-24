@@ -65,17 +65,30 @@ export class SystemAudioTranscription {
     this.callbacks = callbacks;
   }
 
-  async start(captureMode: SystemAudioCaptureMode = "loopback") {
+  async start(
+    captureMode: SystemAudioCaptureMode = "loopback",
+    source: AudioCaptureSource = "system-audio",
+  ) {
     if (this.socket) return;
-    if (captureMode === "unsupported") {
-      throw new Error("当前 macOS 版本不支持免驱动系统音频采集");
-    }
 
     this.userStopping = false;
     this.taskStarted = false;
     this.taskId = createTaskId();
 
     try {
+      if (source === "microphone") {
+        this.mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+        await this.openSocket();
+        await this.startAudioPipeline();
+        return;
+      }
+
+      if (captureMode === "unsupported") {
+        throw new Error("当前 macOS 版本不支持免驱动系统音频采集");
+      }
+
       if (captureMode === "core-audio") {
         this.usingCoreAudio = true;
         this.unsubscribeCoreAudioData = window.desktop.onSystemAudioData(

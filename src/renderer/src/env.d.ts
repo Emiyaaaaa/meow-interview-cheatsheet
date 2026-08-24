@@ -11,6 +11,8 @@ type MediaPermissionStatus =
 
 type PermissionKind = "microphone" | "screen";
 
+type AudioCaptureSource = "system-audio" | "microphone";
+
 type SystemAudioCaptureMode =
   | "core-audio"
   | "screen-capture"
@@ -35,5 +37,6 @@ interface Window {
     stopCoreAudioCapture: () => Promise<void>;
     onSystemAudioData: (listener: (data: ArrayBuffer) => void) => () => void;
     onSystemAudioError: (listener: (message: string) => void) => () => void;
+    setWindowTitle: (title: string) => Promise<void>;
   };
 }

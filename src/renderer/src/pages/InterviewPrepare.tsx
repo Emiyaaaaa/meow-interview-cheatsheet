@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Card } from "@heroui/react";
+import { Button, Card, Description, Radio, RadioGroup } from "@heroui/react";
 import {
   Check,
   Clock3,
+  Mic,
   MonitorUp,
   Play,
   ShieldCheck,
@@ -20,9 +21,13 @@ function formatDuration(totalSeconds: number) {
   return `${minutes}:${seconds}`;
 }
 
-export function InterviewPage() {
+export function InterviewPreparePage() {
   const isMac = window.desktop.platform === "darwin";
+  const [captureSource, setCaptureSource] =
+    useState<AudioCaptureSource>("system-audio");
   const [capturePermission, setCapturePermission] =
+    useState<MediaPermissionStatus>(isMac ? "not-determined" : "granted");
+  const [microphonePermission, setMicrophonePermission] =
     useState<MediaPermissionStatus>(isMac ? "not-determined" : "granted");
   const [audioCapabilities, setAudioCapabilities] =
     useState<SystemAudioCapabilities>({
@@ -94,31 +99,55 @@ export function InterviewPage() {
         } else {
           setCapturePermission("restricted");
         }
+
+        if (isMac) {
+          const micStatus =
+            await window.desktop.getPermissionStatus("microphone");
+          if (active) setMicrophonePermission(micStatus);
+        }
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [isMac]);
 
   useEffect(() => {
     const kind = permissionKindForMode(audioCapabilities.mode);
     if (!kind) return;
 
-    const refresh = () => void refreshPermission(kind);
+    const refresh = () => void refreshCapturePermission(kind);
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
   }, [audioCapabilities.mode]);
 
-  const allPermissionsGranted =
-    capabilitiesLoaded &&
+  useEffect(() => {
+    if (captureSource !== "microphone" || !isMac) return;
+
+    const refresh = () => void refreshMicrophonePermission();
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [captureSource, isMac]);
+
+  const systemAudioPermissionsGranted =
     audioCapabilities.mode !== "unsupported" &&
     (audioCapabilities.mode === "loopback" || capturePermission === "granted");
+
+  const microphonePermissionsGranted =
+    !isMac || microphonePermission === "granted";
+
+  const allPermissionsGranted =
+    capabilitiesLoaded &&
+    (captureSource === "microphone"
+      ? microphonePermissionsGranted
+      : systemAudioPermissionsGranted);
 
   const isMacAudioOnly = audioCapabilities.mode === "core-audio";
   const isLegacyMacCapture = audioCapabilities.mode === "screen-capture";
   const isUnsupported = audioCapabilities.mode === "unsupported";
   const needsSystemSettings =
     capturePermission === "denied" || capturePermission === "restricted";
+  const needsMicrophoneSettings =
+    microphonePermission === "denied" || microphonePermission === "restricted";
 
   function permissionKindForMode(
     mode: SystemAudioCaptureMode,
@@ -128,9 +157,15 @@ export function InterviewPage() {
     return null;
   }
 
-  async function refreshPermission(kind: PermissionKind) {
+  async function refreshCapturePermission(kind: PermissionKind) {
     const status = await window.desktop.getPermissionStatus(kind);
     setCapturePermission(status);
+    return status;
+  }
+
+  async function refreshMicrophonePermission() {
+    const status = await window.desktop.getPermissionStatus("microphone");
+    setMicrophonePermission(status);
     return status;
   }
 
@@ -141,9 +176,8 @@ export function InterviewPage() {
     setIsAuthorizing(true);
     setTranscriptionError(null);
     try {
-      const current = await refreshPermission(kind);
+      const current = await refreshCapturePermission(kind);
       if (current === "granted") {
-        console.log("authorizeSystemCapture", current);
         return;
       }
 
@@ -163,13 +197,42 @@ export function InterviewPage() {
         video: true,
       });
       for (const track of stream.getTracks()) track.stop();
-      if ((await refreshPermission(kind)) !== "granted") {
+      if ((await refreshCapturePermission(kind)) !== "granted") {
         await window.desktop.openPermissionSettings(kind);
       }
     } catch (error) {
-      await refreshPermission(kind);
+      await refreshCapturePermission(kind);
       setTranscriptionError(
         error instanceof Error ? error.message : "系统录制权限授权失败",
+      );
+    } finally {
+      setIsAuthorizing(false);
+    }
+  }
+
+  async function authorizeMicrophone() {
+    if (!isMac || isAuthorizing) return;
+
+    setIsAuthorizing(true);
+    setTranscriptionError(null);
+    try {
+      const current = await refreshMicrophonePermission();
+      if (current === "granted") {
+        return;
+      }
+
+      if (current !== "not-determined") {
+        await window.desktop.openPermissionSettings("microphone");
+        return;
+      }
+
+      setMicrophonePermission(
+        await window.desktop.requestPermission("microphone"),
+      );
+    } catch (error) {
+      await refreshMicrophonePermission();
+      setTranscriptionError(
+        error instanceof Error ? error.message : "麦克风权限授权失败",
       );
     } finally {
       setIsAuthorizing(false);
@@ -190,11 +253,15 @@ export function InterviewPage() {
     setIsStarting(true);
     setTranscriptionError(null);
     try {
-      await transcription.start(audioCapabilities.mode);
+      await transcription.start(audioCapabilities.mode, captureSource);
       setIsRunning(true);
     } catch (error) {
       setTranscriptionError(
-        error instanceof Error ? error.message : "无法开始系统音频转写",
+        error instanceof Error
+          ? error.message
+          : captureSource === "microphone"
+            ? "无法开始麦克风转写"
+            : "无法开始系统音频转写",
       );
     } finally {
       setIsStarting(false);
@@ -229,6 +296,53 @@ export function InterviewPage() {
         <div className="flex items-center justify-between border-b border-black/6 px-6 py-5">
           <div className="flex items-center gap-3">
             <div className="grid size-9 place-items-center rounded-lg bg-[#f2f2f2]">
+              <Volume2 className="size-5" />
+            </div>
+            <div>
+              <Card.Title>采集选项</Card.Title>
+              <Card.Description>选择音频输入来源</Card.Description>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6 py-5">
+          <RadioGroup
+            isDisabled={isRunning}
+            name="capture-source"
+            value={captureSource}
+            variant="secondary"
+            onChange={(value) => setCaptureSource(value as AudioCaptureSource)}
+          >
+            <Radio value="system-audio">
+              <Radio.Content>
+                <Radio.Control>
+                  <Radio.Indicator />
+                </Radio.Control>
+                系统音频输出
+              </Radio.Content>
+              <Description>
+                采集电脑播放的音频，适用于面试官声音从本机扬声器输出的场景
+              </Description>
+            </Radio>
+            <Radio value="microphone">
+              <Radio.Content>
+                <Radio.Control>
+                  <Radio.Indicator />
+                </Radio.Control>
+                麦克风
+              </Radio.Content>
+              <Description>
+                采集麦克风输入作为面试官输出，适用于双设备场景
+              </Description>
+            </Radio>
+          </RadioGroup>
+        </div>
+      </Card>
+
+      <Card className="mt-4 border border-black/6 bg-white p-0 shadow-sm">
+        <div className="flex items-center justify-between border-b border-black/6 px-6 py-5">
+          <div className="flex items-center gap-3">
+            <div className="grid size-9 place-items-center rounded-lg bg-[#f2f2f2]">
               <ShieldCheck className="size-5" />
             </div>
             <div>
@@ -244,57 +358,94 @@ export function InterviewPage() {
         </div>
 
         <div className="px-6">
-          <div className="flex items-center gap-4 py-4">
-            <div className="grid size-10 place-items-center rounded-xl bg-[#f5f5f5]">
-              {isLegacyMacCapture ? (
-                <MonitorUp className="size-5" />
+          {captureSource === "system-audio" ? (
+            <div className="flex items-center gap-4 py-4">
+              <div className="grid size-10 place-items-center rounded-xl bg-[#f5f5f5]">
+                {isLegacyMacCapture ? (
+                  <MonitorUp className="size-5" />
+                ) : (
+                  <Volume2 className="size-5" />
+                )}
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium">
+                  {isMacAudioOnly
+                    ? "系统录音权限"
+                    : isLegacyMacCapture
+                      ? "屏幕录制权限"
+                      : "系统输出音频"}
+                </p>
+                <p className="text-xs text-muted">
+                  {isMacAudioOnly
+                    ? `macOS ${audioCapabilities.macOSVersion} 仅采集系统音频输出，不读取屏幕`
+                    : isLegacyMacCapture
+                      ? `macOS ${audioCapabilities.macOSVersion} 只能通过屏幕录制权限获取系统音频；应用不会保存或上传屏幕画面`
+                      : isUnsupported
+                        ? `macOS ${audioCapabilities.macOSVersion} 不支持免驱动系统音频采集，请升级至 macOS 13 或更高版本`
+                        : "Windows 支持系统音频回环，无需额外授权"}
+                </p>
+              </div>
+              {systemAudioPermissionsGranted ? (
+                <div className="flex items-center gap-2 text-sm font-medium text-emerald-600">
+                  <span className="grid size-6 place-items-center rounded-full bg-emerald-50">
+                    <Check className="size-4" />
+                  </span>
+                  {isMac ? "已授权" : "无需授权"}
+                </div>
+              ) : isUnsupported ? (
+                <span className="text-sm font-medium text-red-500">不支持</span>
               ) : (
-                <Volume2 className="size-5" />
+                <div className="flex items-center gap-3">
+                  <span className="grid size-6 place-items-center rounded-full bg-red-50 text-red-500">
+                    <X className="size-4" />
+                  </span>
+                  <Button
+                    isPending={isAuthorizing}
+                    size="sm"
+                    variant="outline"
+                    onPress={() => void authorizeSystemCapture()}
+                  >
+                    {needsSystemSettings ? "打开系统设置" : "去授权"}
+                  </Button>
+                </div>
               )}
             </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium">
-                {isMacAudioOnly
-                  ? "系统录音权限"
-                  : isLegacyMacCapture
-                    ? "屏幕录制权限"
-                    : "系统输出音频"}
-              </p>
-              <p className="text-xs text-muted">
-                {isMacAudioOnly
-                  ? `macOS ${audioCapabilities.macOSVersion} 仅采集系统输出，不读取屏幕`
-                  : isLegacyMacCapture
-                    ? `macOS ${audioCapabilities.macOSVersion} 只能通过屏幕录制权限获取系统音频；应用不会保存或上传屏幕画面`
-                    : isUnsupported
-                      ? `macOS ${audioCapabilities.macOSVersion} 不支持免驱动系统音频采集，请升级至 macOS 13 或更高版本`
-                      : "Windows 支持系统音频回环，无需额外授权"}
-              </p>
+          ) : (
+            <div className="flex items-center gap-4 py-4">
+              <div className="grid size-10 place-items-center rounded-xl bg-[#f5f5f5]">
+                <Mic className="size-5" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium">麦克风权限</p>
+                <p className="text-xs text-muted">
+                  采集麦克风输入作为面试官输出，适用于双设备场景
+                  {isMac ? "；请在系统设置中允许本应用访问麦克风" : ""}
+                </p>
+              </div>
+              {microphonePermissionsGranted ? (
+                <div className="flex items-center gap-2 text-sm font-medium text-emerald-600">
+                  <span className="grid size-6 place-items-center rounded-full bg-emerald-50">
+                    <Check className="size-4" />
+                  </span>
+                  {isMac ? "已授权" : "无需授权"}
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <span className="grid size-6 place-items-center rounded-full bg-red-50 text-red-500">
+                    <X className="size-4" />
+                  </span>
+                  <Button
+                    isPending={isAuthorizing}
+                    size="sm"
+                    variant="outline"
+                    onPress={() => void authorizeMicrophone()}
+                  >
+                    {needsMicrophoneSettings ? "打开系统设置" : "去授权"}
+                  </Button>
+                </div>
+              )}
             </div>
-            {allPermissionsGranted ? (
-              <div className="flex items-center gap-2 text-sm font-medium text-emerald-600">
-                <span className="grid size-6 place-items-center rounded-full bg-emerald-50">
-                  <Check className="size-4" />
-                </span>
-                {isMac ? "已授权" : "无需授权"}
-              </div>
-            ) : isUnsupported ? (
-              <span className="text-sm font-medium text-red-500">不支持</span>
-            ) : (
-              <div className="flex items-center gap-3">
-                <span className="grid size-6 place-items-center rounded-full bg-red-50 text-red-500">
-                  <X className="size-4" />
-                </span>
-                <Button
-                  isPending={isAuthorizing}
-                  size="sm"
-                  variant="outline"
-                  onPress={() => void authorizeSystemCapture()}
-                >
-                  {needsSystemSettings ? "打开系统设置" : "去授权"}
-                </Button>
-              </div>
-            )}
-          </div>
+          )}
         </div>
       </Card>
 

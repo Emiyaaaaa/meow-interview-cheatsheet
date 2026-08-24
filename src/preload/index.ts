@@ -28,4 +28,6 @@ contextBridge.exposeInMainWorld("desktop", {
     ipcRenderer.on("system-audio:error", handler);
     return () => ipcRenderer.removeListener("system-audio:error", handler);
   },
+  setWindowTitle: (title: string) =>
+    ipcRenderer.invoke("app:set-window-title", title),
 });

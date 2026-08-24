@@ -1,20 +1,23 @@
 import { useState, type FormEvent } from "react";
 import { Button, Input, Label, Modal, TextField } from "@heroui/react";
 import {
-  ChevronRight,
   CircleDollarSign,
   LogIn,
   Play,
+  Settings,
   Sparkles,
   UserRound,
 } from "lucide-react";
-import { InterviewPage } from "./pages/InterviewPage";
-import { RechargePage } from "./pages/RechargePage";
+import { useAppName } from "./appName";
+import { InterviewPreparePage } from "./pages/InterviewPrepare";
+import { RechargePage } from "./pages/Recharge";
+import { SettingsPage } from "./pages/Settings";
 
-type Page = "interview" | "recharge";
+type Page = "InterviewPrepare" | "recharge" | "settings";
 
 export function App() {
-  const [page, setPage] = useState<Page>("interview");
+  const { appName, setAppName } = useAppName();
+  const [page, setPage] = useState<Page>("InterviewPrepare");
   const [phone, setPhone] = useState<string | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [phoneInput, setPhoneInput] = useState("");
@@ -37,18 +40,13 @@ export function App() {
             <Sparkles className="size-5" />
           </div>
           <div>
-            <h1 className="font-semibold tracking-tight">神奇面试小抄</h1>
-            <p className="text-xs text-muted">AI 面试助手</p>
+            <h1 className="font-semibold tracking-tight">{appName}</h1>
           </div>
         </div>
-
         <nav className="flex flex-col gap-2" aria-label="主导航">
           <Button
-            className={`h-11 justify-between px-3 ${
-              page === "interview"
-                ? "bg-black text-white"
-                : "bg-transparent text-foreground"
-            }`}
+            fullWidth
+            className="justify-start"
             variant={page === "interview" ? "primary" : "ghost"}
             onPress={() => setPage("interview")}
           >
@@ -56,14 +54,10 @@ export function App() {
               <Play className="size-4" />
               开始面试
             </span>
-            <ChevronRight className="size-4 opacity-60" />
           </Button>
           <Button
-            className={`h-11 justify-between px-3 ${
-              page === "recharge"
-                ? "bg-black text-white"
-                : "bg-transparent text-foreground"
-            }`}
+            fullWidth
+            className="justify-start"
             variant={page === "recharge" ? "primary" : "ghost"}
             onPress={() => setPage("recharge")}
           >
@@ -71,7 +65,17 @@ export function App() {
               <CircleDollarSign className="size-4" />
               时长充值
             </span>
-            <ChevronRight className="size-4 opacity-60" />
+          </Button>
+          <Button
+            fullWidth
+            className="justify-start"
+            variant={page === "settings" ? "primary" : "ghost"}
+            onPress={() => setPage("settings")}
+          >
+            <span className="flex items-center gap-3">
+              <Settings className="size-4" />
+              设置
+            </span>
           </Button>
         </nav>
 
@@ -87,11 +91,7 @@ export function App() {
               </div>
             </div>
           ) : (
-            <Button
-              className="h-11 bg-black text-white"
-              fullWidth
-              onPress={() => setLoginOpen(true)}
-            >
+            <Button fullWidth onPress={() => setLoginOpen(true)}>
               <LogIn className="size-4" />
               登录
             </Button>
@@ -100,7 +100,13 @@ export function App() {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-auto">
-        {page === "interview" ? <InterviewPage /> : <RechargePage />}
+        {page === "InterviewPrepare" ? (
+          <InterviewPreparePage />
+        ) : page === "recharge" ? (
+          <RechargePage />
+        ) : (
+          <SettingsPage appName={appName} onAppNameChange={setAppName} />
+        )}
       </main>
 
       <Modal.Backdrop
@@ -130,7 +136,9 @@ export function App() {
                     placeholder="请输入 11 位手机号"
                     value={phoneInput}
                     onChange={(event) =>
-                      setPhoneInput(event.currentTarget.value.replace(/\D/g, ""))
+                      setPhoneInput(
+                        event.currentTarget.value.replace(/\D/g, ""),
+                      )
                     }
                   />
                 </TextField>

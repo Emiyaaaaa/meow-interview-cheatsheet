@@ -1,0 +1,66 @@
+import { useEffect, useState, type FormEvent } from "react";
+import { Button, Description, Input, Label, TextField } from "@heroui/react";
+import { DEFAULT_APP_NAME } from "../appName";
+
+type SettingsPageProps = {
+  appName: string;
+  onAppNameChange: (name: string) => void;
+};
+
+export function SettingsPage({ appName, onAppNameChange }: SettingsPageProps) {
+  const [inputValue, setInputValue] = useState(appName);
+
+  useEffect(() => {
+    setInputValue(appName);
+  }, [appName]);
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onAppNameChange(inputValue);
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl px-10 py-8">
+      <p className="mb-2 text-sm font-medium text-muted">偏好设置</p>
+      <h2 className="text-3xl font-semibold tracking-tight">设置</h2>
+      <p className="mt-3 text-sm text-muted">
+        自定义应用展示名称，修改后将同步更新侧边栏与窗口标题。
+      </p>
+
+      <form
+        className="mt-10 rounded-2xl border border-black/6 bg-white p-6 shadow-sm"
+        onSubmit={handleSubmit}
+      >
+        <TextField name="appName">
+          <Label>应用名称</Label>
+          <Input
+            fullWidth
+            maxLength={32}
+            placeholder={DEFAULT_APP_NAME}
+            value={inputValue}
+            onChange={(event) => setInputValue(event.currentTarget.value)}
+          />
+          <Description>
+            默认为「{DEFAULT_APP_NAME}」，留空保存时将恢复默认名称。
+          </Description>
+        </TextField>
+        <div className="mt-6 flex items-center justify-end gap-3">
+          <Button
+            type="button"
+            variant="secondary"
+            onPress={() => setInputValue(appName)}
+          >
+            重置输入
+          </Button>
+          <Button
+            className="bg-black text-white"
+            isDisabled={inputValue.trim() === appName}
+            type="submit"
+          >
+            保存
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
