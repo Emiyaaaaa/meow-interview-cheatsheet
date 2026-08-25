@@ -21,45 +21,31 @@ export function SettingsPage({ appName, onAppNameChange }: SettingsPageProps) {
 
   return (
     <div className="mx-auto max-w-3xl px-10 py-8">
-      <p className="mb-2 text-sm font-medium text-muted">偏好设置</p>
       <h2 className="text-3xl font-semibold tracking-tight">设置</h2>
-      <p className="mt-3 text-sm text-muted">
-        自定义应用展示名称，修改后将同步更新侧边栏与窗口标题。
-      </p>
-
       <form
         className="mt-10 rounded-2xl border border-black/6 bg-white p-6 shadow-sm"
         onSubmit={handleSubmit}
       >
         <TextField name="appName">
           <Label>应用名称</Label>
-          <Input
-            fullWidth
-            maxLength={32}
-            placeholder={DEFAULT_APP_NAME}
-            value={inputValue}
-            onChange={(event) => setInputValue(event.currentTarget.value)}
-          />
-          <Description>
-            默认为「{DEFAULT_APP_NAME}」，留空保存时将恢复默认名称。
-          </Description>
+          <div className="flex items-center gap-2">
+            <Input
+              fullWidth
+              maxLength={32}
+              placeholder={DEFAULT_APP_NAME}
+              value={inputValue}
+              onChange={(event) => setInputValue(event.currentTarget.value)}
+            />
+            <Button
+              className="bg-black text-white"
+              isDisabled={inputValue.trim() === appName}
+              type="submit"
+            >
+              保存
+            </Button>
+          </div>
+          <Description>可修改为为「面试录音工具」，更加隐蔽。</Description>
         </TextField>
-        <div className="mt-6 flex items-center justify-end gap-3">
-          <Button
-            type="button"
-            variant="secondary"
-            onPress={() => setInputValue(appName)}
-          >
-            重置输入
-          </Button>
-          <Button
-            className="bg-black text-white"
-            isDisabled={inputValue.trim() === appName}
-            type="submit"
-          >
-            保存
-          </Button>
-        </div>
       </form>
     </div>
   );

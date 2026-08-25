@@ -11,7 +11,7 @@
   --overlay-foreground: var(--foreground);
   --accent: var(--foreground);
   --accent-foreground: oklch(1 0 0);
-  --focus: var(--foreground);
+  --focus: rgb(72, 72, 72);
   --link: var(--foreground);
   --field-background: oklch(0.96 0 0);
   --field-border: oklch(0.88 0 0);
@@ -51,6 +51,9 @@
 
 @layer components {
   .button {
-    @apply rounded;
+    @apply rounded-md;
+  }
+  .input {
+    @apply rounded-md;
   }
 }

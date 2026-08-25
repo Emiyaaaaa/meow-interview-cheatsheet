@@ -6,6 +6,7 @@ interface TranscriptPanelProps {
   finalLines: string[];
   interimText: string;
   isRunning: boolean;
+  layout?: "panel" | "page";
 }
 
 export function TranscriptPanel({
@@ -13,11 +14,17 @@ export function TranscriptPanel({
   finalLines,
   interimText,
   isRunning,
+  layout = "panel",
 }: TranscriptPanelProps) {
   const hasTranscript = finalLines.length > 0 || interimText.length > 0;
+  const isPage = layout === "page";
 
   return (
-    <Card className="mt-6 min-h-64 border border-black/6 bg-white p-0 shadow-sm">
+    <Card
+      className={`border border-black/6 bg-white p-0 shadow-sm ${
+        isPage ? "flex min-h-0 flex-1 flex-col" : "mt-6 min-h-64"
+      }`}
+    >
       <div className="flex items-center justify-between border-b border-black/6 px-6 py-4">
         <div className="flex items-center gap-3">
           <div className="grid size-9 place-items-center rounded-lg bg-[#f2f2f2]">
@@ -40,7 +47,11 @@ export function TranscriptPanel({
 
       <Card.Content
         aria-live="polite"
-        className="max-h-72 min-h-48 overflow-y-auto px-6 py-5"
+        className={
+          isPage
+            ? "min-h-0 flex-1 overflow-y-auto px-6 py-5"
+            : "max-h-72 min-h-48 overflow-y-auto px-6 py-5"
+        }
       >
         {error ? (
           <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">
@@ -51,7 +62,10 @@ export function TranscriptPanel({
         {hasTranscript ? (
           <div className="space-y-3">
             {finalLines.map((line, index) => (
-              <p className="text-sm leading-7 text-foreground" key={`${index}-${line}`}>
+              <p
+                className="text-sm leading-7 text-foreground"
+                key={`${index}-${line}`}
+              >
                 {line}
               </p>
             ))}
@@ -60,7 +74,11 @@ export function TranscriptPanel({
             ) : null}
           </div>
         ) : (
-          <div className="grid min-h-36 place-items-center text-center">
+          <div
+            className={`grid place-items-center text-center ${
+              isPage ? "min-h-full" : "min-h-36"
+            }`}
+          >
             <div>
               <p className="text-sm font-medium">
                 {isRunning ? "正在聆听系统音频…" : "暂无转写内容"}
