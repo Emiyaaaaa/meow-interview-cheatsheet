@@ -21,7 +21,6 @@ export function SettingsPage({ appName, onAppNameChange }: SettingsPageProps) {
 
   return (
     <div className="mx-auto max-w-3xl px-10 py-8">
-      <h2 className="text-3xl font-semibold tracking-tight">设置</h2>
       <form
         className="mt-10 rounded-2xl border border-black/6 bg-white p-6 shadow-sm"
         onSubmit={handleSubmit}

@@ -1,33 +1,12 @@
-const ASR_URL =
-  "wss://gw-da1qng6m1hkl4art9m8g-tobkhiex7vkv0kcpjc-cn-hangzhou.alicloudapi.com/api-ws/v1/inference";
-const TARGET_SAMPLE_RATE = 16_000;
+import { AsrClient, ASR_SAMPLE_RATE, type AsrStartOptions } from "./services";
 
 interface TranscriptionCallbacks {
   onError: (message: string) => void;
   onResult: (text: string, isFinal: boolean) => void;
 }
 
-interface AsrMessage {
-  header?: {
-    event?: string;
-    error_message?: string;
-  };
-  payload?: {
-    output?: {
-      sentence?: {
-        sentence_end?: boolean;
-        text?: string;
-      };
-    };
-  };
-}
-
-function createTaskId() {
-  return crypto.randomUUID().replaceAll("-", "");
-}
-
 function downsampleToPcm16(input: Float32Array, inputSampleRate: number) {
-  const ratio = inputSampleRate / TARGET_SAMPLE_RATE;
+  const ratio = inputSampleRate / ASR_SAMPLE_RATE;
   const outputLength = Math.max(1, Math.round(input.length / ratio));
   const output = new Int16Array(outputLength);
 
@@ -48,39 +27,37 @@ function downsampleToPcm16(input: Float32Array, inputSampleRate: number) {
 }
 
 export class SystemAudioTranscription {
+  private asr: AsrClient;
   private audioContext: AudioContext | null = null;
   private callbacks: TranscriptionCallbacks;
   private mediaStream: MediaStream | null = null;
   private processor: ScriptProcessorNode | null = null;
-  private socket: WebSocket | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
-  private taskId = "";
-  private taskStarted = false;
   private unsubscribeCoreAudioData: (() => void) | null = null;
   private unsubscribeCoreAudioError: (() => void) | null = null;
   private usingCoreAudio = false;
-  private userStopping = false;
 
   constructor(callbacks: TranscriptionCallbacks) {
     this.callbacks = callbacks;
+    this.asr = new AsrClient({
+      ...callbacks,
+      onClose: () => this.stopAudioPipeline(),
+    });
   }
 
   async start(
     captureMode: SystemAudioCaptureMode = "loopback",
     source: AudioCaptureSource = "system-audio",
+    asrOptions?: AsrStartOptions,
   ) {
-    if (this.socket) return;
-
-    this.userStopping = false;
-    this.taskStarted = false;
-    this.taskId = createTaskId();
+    if (this.asr.isConnected) return;
 
     try {
       if (source === "microphone") {
         this.mediaStream = await navigator.mediaDevices.getUserMedia({
           audio: true,
         });
-        await this.openSocket();
+        await this.asr.start(asrOptions);
         await this.startAudioPipeline();
         return;
       }
@@ -93,12 +70,7 @@ export class SystemAudioTranscription {
         this.usingCoreAudio = true;
         this.unsubscribeCoreAudioData = window.desktop.onSystemAudioData(
           (data) => {
-            if (
-              this.socket?.readyState === WebSocket.OPEN &&
-              this.taskStarted
-            ) {
-              this.socket.send(data);
-            }
+            this.asr.sendAudio(data);
           },
         );
         this.unsubscribeCoreAudioError = window.desktop.onSystemAudioError(
@@ -117,13 +89,11 @@ export class SystemAudioTranscription {
         }
 
         if (this.mediaStream.getAudioTracks().length === 0) {
-          throw new Error(
-            "未获取到系统音频，请在系统设置中允许录制系统音频",
-          );
+          throw new Error("未获取到系统音频，请在系统设置中允许录制系统音频");
         }
       }
 
-      await this.openSocket();
+      await this.asr.start(asrOptions);
       if (!this.usingCoreAudio) {
         await this.startAudioPipeline();
       }
@@ -134,127 +104,12 @@ export class SystemAudioTranscription {
   }
 
   stop() {
-    if (!this.socket && !this.mediaStream) return;
-
-    this.userStopping = true;
-    this.stopAudioPipeline();
-
-    if (
-      this.socket?.readyState === WebSocket.OPEN &&
-      this.taskStarted
-    ) {
-      this.socket.send(
-        JSON.stringify({
-          header: {
-            action: "finish-task",
-            task_id: this.taskId,
-            streaming: "duplex",
-          },
-          payload: { input: {} },
-        }),
-      );
-
-      window.setTimeout(() => this.cleanup(), 2_000);
+    if (!this.asr.isConnected && !this.mediaStream && !this.usingCoreAudio) {
       return;
     }
 
-    this.cleanup();
-  }
-
-  private openSocket() {
-    return new Promise<void>((resolve, reject) => {
-      const socket = new WebSocket(ASR_URL);
-      this.socket = socket;
-
-      socket.addEventListener("open", () => {
-        socket.send(
-          JSON.stringify({
-            header: {
-              action: "run-task",
-              task_id: this.taskId,
-              streaming: "duplex",
-            },
-            payload: {
-              task_group: "audio",
-              task: "asr",
-              function: "recognition",
-              model: "fun-asr-realtime",
-              parameters: {
-                format: "pcm",
-                sample_rate: TARGET_SAMPLE_RATE,
-              },
-              input: {},
-            },
-          }),
-        );
-      });
-
-      socket.addEventListener("message", (event) => {
-        void this.handleMessage(event.data, resolve, reject);
-      });
-
-      socket.addEventListener("error", () => {
-        const error = new Error("语音识别服务连接失败");
-        if (!this.taskStarted) reject(error);
-        this.callbacks.onError(error.message);
-      });
-
-      socket.addEventListener("close", () => {
-        const stoppedNormally = this.userStopping;
-        this.cleanup();
-        if (!stoppedNormally && this.taskStarted) {
-          this.callbacks.onError("语音识别连接已断开");
-        }
-      });
-    });
-  }
-
-  private async handleMessage(
-    data: unknown,
-    resolve: () => void,
-    reject: (reason: Error) => void,
-  ) {
-    try {
-      const raw =
-        typeof data === "string"
-          ? data
-          : data instanceof Blob
-            ? await data.text()
-            : "";
-      const message = JSON.parse(raw) as AsrMessage;
-      const event = message.header?.event;
-
-      if (event === "task-started") {
-        this.taskStarted = true;
-        resolve();
-        return;
-      }
-
-      if (event === "result-generated") {
-        const sentence = message.payload?.output?.sentence;
-        const text = sentence?.text?.trim();
-        if (text) {
-          this.callbacks.onResult(text, sentence?.sentence_end === true);
-        }
-        return;
-      }
-
-      if (event === "task-finished") {
-        this.cleanup();
-        return;
-      }
-
-      if (event === "task-failed") {
-        const error = new Error(
-          message.header?.error_message || "语音识别任务失败",
-        );
-        if (!this.taskStarted) reject(error);
-        this.callbacks.onError(error.message);
-        this.cleanup();
-      }
-    } catch {
-      this.callbacks.onError("无法解析语音识别服务返回的数据");
-    }
+    this.stopAudioPipeline();
+    this.asr.finish();
   }
 
   private async startAudioPipeline() {
@@ -267,15 +122,8 @@ export class SystemAudioTranscription {
     mutedOutput.gain.value = 0;
 
     processor.addEventListener("audioprocess", (event) => {
-      if (
-        this.socket?.readyState !== WebSocket.OPEN ||
-        !this.taskStarted
-      ) {
-        return;
-      }
-
       const samples = event.inputBuffer.getChannelData(0);
-      this.socket.send(downsampleToPcm16(samples, audioContext.sampleRate));
+      this.asr.sendAudio(downsampleToPcm16(samples, audioContext.sampleRate));
     });
 
     source.connect(processor);
@@ -316,11 +164,6 @@ export class SystemAudioTranscription {
 
   private cleanup() {
     this.stopAudioPipeline();
-    if (this.socket) {
-      this.socket.onclose = null;
-      this.socket.close();
-      this.socket = null;
-    }
-    this.taskStarted = false;
+    this.asr.close();
   }
 }

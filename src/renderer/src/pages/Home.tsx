@@ -10,22 +10,30 @@ import {
 } from "@heroui/react";
 import {
   BadgeDollarSign,
+  CirclePause,
   Clock,
   LogIn,
   Play,
   Settings,
-  Sparkles,
   UserRound,
 } from "lucide-react";
 import { useAppName } from "../appName";
+import { useInterview } from "../context/InterviewContext";
 import { InterviewPreparePage } from "./InterviewPrepare";
 import { RechargePage } from "./Recharge";
 import { SettingsPage } from "./Settings";
+
+function formatDuration(totalSeconds: number) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  return `${hours}小时${minutes}分钟`;
+}
 
 type Page = "prepare" | "recharge" | "settings";
 
 export function HomePage() {
   const { appName, setAppName } = useAppName();
+  const { elapsedSeconds } = useInterview();
   const [page, setPage] = useState<Page>("prepare");
   const [phone, setPhone] = useState<string | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
@@ -42,10 +50,12 @@ export function HomePage() {
   }
 
   return (
-    <div className="flex h-screen min-h-160 bg-[#f4f4f4] text-foreground">
-      <aside className="flex w-64 shrink-0 flex-col border-r border-black/8 bg-white px-4 py-5">
-        <h1 className="font-semibold tracking-tight">{appName}</h1>
-        <nav className="flex flex-col gap-2 mt-10" aria-label="主导航">
+    <div className="flex h-screen min-h-160">
+      <aside className="flex w-64 shrink-0 flex-col bg-white px-4 py-5">
+        <nav
+          className="flex flex-col gap-2 mt-5 font-normal"
+          aria-label="主导航"
+        >
           <Button
             fullWidth
             className={cn(
@@ -56,7 +66,10 @@ export function HomePage() {
             onPress={() => setPage("prepare")}
           >
             <span className="flex items-center gap-3">
-              <Play className="size-4" />
+              <Play
+                className="size-4"
+                color={page === "prepare" ? "green" : undefined}
+              />
               开始面试
             </span>
           </Button>
@@ -70,7 +83,10 @@ export function HomePage() {
             onPress={() => setPage("recharge")}
           >
             <span className="flex items-center gap-3">
-              <Clock className="size-4" />
+              <Clock
+                className="size-4"
+                color={page === "recharge" ? "orange" : undefined}
+              />
               时长充值
               <Chip
                 size="sm"
@@ -92,13 +108,25 @@ export function HomePage() {
             onPress={() => setPage("settings")}
           >
             <span className="flex items-center gap-3">
-              <Settings className="size-4" />
+              <Settings
+                className="size-4"
+                color={page === "settings" ? "#3a83f7" : undefined}
+              />
               设置
             </span>
           </Button>
         </nav>
 
-        <div className="mt-auto">
+        <div className="mt-auto flex flex-col gap-2">
+          <div className="flex w-full justify-center items-center gap-3">
+            <span className="font-mono text-sm text-muted">
+              时长剩余 {formatDuration(elapsedSeconds)}
+              <Chip className="ml-2" variant="soft" color="warning">
+                <CirclePause className="size-3" />
+                <Chip.Label>已暂停</Chip.Label>
+              </Chip>
+            </span>
+          </div>
           {phone ? (
             <div className="flex items-center gap-3 rounded-xl border border-black/8 bg-[#fafafa] p-3">
               <div className="grid size-9 place-items-center rounded-full bg-black text-white">
@@ -110,7 +138,11 @@ export function HomePage() {
               </div>
             </div>
           ) : (
-            <Button fullWidth onPress={() => setLoginOpen(true)}>
+            <Button
+              fullWidth
+              variant="tertiary"
+              onPress={() => setLoginOpen(true)}
+            >
               <LogIn className="size-4" />
               登录
             </Button>
@@ -128,11 +160,7 @@ export function HomePage() {
         )}
       </main>
 
-      <Modal.Backdrop
-        isOpen={loginOpen}
-        onOpenChange={setLoginOpen}
-        variant="blur"
-      >
+      <Modal.Backdrop isOpen={loginOpen} onOpenChange={setLoginOpen}>
         <Modal.Container size="sm">
           <Modal.Dialog>
             <Modal.CloseTrigger />

@@ -24,6 +24,11 @@ interface SystemAudioCapabilities {
   mode: SystemAudioCaptureMode;
 }
 
+interface ResumeFileSelection {
+  name: string;
+  path: string;
+}
+
 interface Window {
   desktop: {
     platform: string;
@@ -38,5 +43,11 @@ interface Window {
     onSystemAudioData: (listener: (data: ArrayBuffer) => void) => () => void;
     onSystemAudioError: (listener: (message: string) => void) => () => void;
     setWindowTitle: (title: string) => Promise<void>;
+    pickResumeFile: () => Promise<ResumeFileSelection | null>;
+    chatCompletions: (
+      requestId: string,
+      body: unknown,
+    ) => Promise<{ body: string; ok: boolean; status: number }>;
+    abortChatCompletions: (requestId: string) => void;
   };
 }

@@ -56,4 +56,7 @@
   .input {
     @apply rounded-md;
   }
+  .card {
+    @apply rounded-xl;
+  }
 }

@@ -41,7 +41,7 @@ export function RechargePage() {
                 <Chip
                   size="sm"
                   variant="soft"
-                  color="success"
+                  color={discountLabel === "免费" ? "warning" : "success"}
                   className="absolute right-1.5 top-1.5 rounded-sm px-2.5"
                 >
                   <Sparkles className="size-3" />

@@ -2,6 +2,7 @@ import {
   app,
   BrowserWindow,
   desktopCapturer,
+  dialog,
   ipcMain,
   session,
   shell,
@@ -9,6 +10,7 @@ import {
 } from "electron";
 import { AudioTee, type AudioChunk } from "audiotee";
 import { join } from "node:path";
+import { CHAT_COMPLETIONS_URL } from "../shared/api";
 
 type SystemAudioCaptureMode =
   "core-audio" | "screen-capture" | "loopback" | "unsupported";
@@ -23,6 +25,14 @@ const PERMISSION_SETTINGS_URL: Record<PermissionKind, string> = {
 };
 
 let coreAudioCapture: AudioTee | null = null;
+const chatAbortControllers = new Map<string, AbortController>();
+const abortedChatRequests = new Set<string>();
+
+function abortError() {
+  const error = new Error("Aborted");
+  error.name = "AbortError";
+  return error;
+}
 
 function getSystemAudioCapabilities(): {
   macOSVersion: string | null;
@@ -145,6 +155,90 @@ function configurePermissionHandlers() {
     if (window && title.trim()) {
       window.setTitle(title.trim());
     }
+  });
+
+  ipcMain.handle(
+    "chat:completions",
+    async (_event, requestId: string, body: unknown) => {
+      const controller = new AbortController();
+      chatAbortControllers.set(requestId, controller);
+
+      if (abortedChatRequests.delete(requestId)) {
+        chatAbortControllers.delete(requestId);
+        throw abortError();
+      }
+
+      try {
+        const response = await fetch(CHAT_COMPLETIONS_URL, {
+          method: "POST",
+          headers: {
+            Accept: "*/*",
+            "Content-Type": "application/json",
+            "User-Agent": "Interview-Cheatsheet/0.1.0",
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+
+        return {
+          body: await response.text(),
+          ok: response.ok,
+          status: response.status,
+        };
+      } catch (error) {
+        if (controller.signal.aborted) {
+          throw abortError();
+        }
+        throw error;
+      } finally {
+        chatAbortControllers.delete(requestId);
+        abortedChatRequests.delete(requestId);
+      }
+    },
+  );
+
+  ipcMain.on("chat:completions:abort", (_event, requestId: string) => {
+    const controller = chatAbortControllers.get(requestId);
+    if (controller) {
+      controller.abort();
+      return;
+    }
+    abortedChatRequests.add(requestId);
+  });
+
+  ipcMain.handle("dialog:pick-resume-file", async (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    const result = window
+      ? await dialog.showOpenDialog(window, {
+          properties: ["openFile"],
+          filters: [
+            {
+              extensions: ["pdf", "doc", "docx", "txt", "md"],
+              name: "简历文件",
+            },
+          ],
+          title: "选择简历文件",
+        })
+      : await dialog.showOpenDialog({
+          properties: ["openFile"],
+          filters: [
+            {
+              extensions: ["pdf", "doc", "docx", "txt", "md"],
+              name: "简历文件",
+            },
+          ],
+          title: "选择简历文件",
+        });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+
+    const filePath = result.filePaths[0];
+    return {
+      name: filePath.split(/[/\\]/).pop() ?? filePath,
+      path: filePath,
+    };
   });
 }
 

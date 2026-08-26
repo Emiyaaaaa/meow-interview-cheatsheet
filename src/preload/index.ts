@@ -30,4 +30,10 @@ contextBridge.exposeInMainWorld("desktop", {
   },
   setWindowTitle: (title: string) =>
     ipcRenderer.invoke("app:set-window-title", title),
+  pickResumeFile: () => ipcRenderer.invoke("dialog:pick-resume-file"),
+  chatCompletions: (requestId: string, body: unknown) =>
+    ipcRenderer.invoke("chat:completions", requestId, body),
+  abortChatCompletions: (requestId: string) => {
+    ipcRenderer.send("chat:completions:abort", requestId);
+  },
 });

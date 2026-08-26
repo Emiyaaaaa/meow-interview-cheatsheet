@@ -8,7 +8,18 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { chat } from "../services/chat";
 import { SystemAudioTranscription } from "../transcription";
+
+export type InterviewQaStatus = "loading" | "ready" | "error";
+
+export interface InterviewQaItem {
+  answer: string;
+  error?: string;
+  id: string;
+  question: string;
+  status: InterviewQaStatus;
+}
 
 interface InterviewContextValue {
   allPermissionsGranted: boolean;
@@ -30,12 +41,14 @@ interface InterviewContextValue {
   microphonePermissionsGranted: boolean;
   needsMicrophoneSettings: boolean;
   needsSystemSettings: boolean;
+  qaItems: InterviewQaItem[];
   systemAudioPermissionsGranted: boolean;
   transcriptionError: string | null;
   authorizeMicrophone: () => Promise<void>;
   authorizeSystemCapture: () => Promise<void>;
   setCaptureSource: (source: AudioCaptureSource) => void;
-  startInterview: () => Promise<void>;
+  startInterview: (options?: { interviewDirection?: string }) => Promise<void>;
+  startInterviewDebug: (options?: { interviewDirection?: string }) => void;
   stopInterview: () => void;
 }
 
@@ -69,10 +82,89 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [finalTranscripts, setFinalTranscripts] = useState<string[]>([]);
   const [interimTranscript, setInterimTranscript] = useState("");
+  const [qaItems, setQaItems] = useState<InterviewQaItem[]>([]);
   const [transcriptionError, setTranscriptionError] = useState<string | null>(
     null,
   );
   const transcriptionRef = useRef<SystemAudioTranscription | null>(null);
+  const interviewDirectionRef = useRef("");
+  const lastFinalTranscriptRef = useRef("");
+  const chatControllersRef = useRef(new Map<string, AbortController>());
+  const chatGenerationRef = useRef(0);
+
+  const abortPendingChats = useCallback(() => {
+    for (const controller of chatControllersRef.current.values()) {
+      controller.abort();
+    }
+    chatControllersRef.current.clear();
+    chatGenerationRef.current += 1;
+  }, []);
+
+  const requestAnswer = useCallback((question: string) => {
+    const trimmed = question.trim();
+    if (!trimmed) return;
+
+    const id = crypto.randomUUID();
+    const generation = chatGenerationRef.current;
+    const controller = new AbortController();
+    chatControllersRef.current.set(id, controller);
+
+    setQaItems((current) => [
+      ...current,
+      {
+        id,
+        question: trimmed,
+        answer: "",
+        status: "loading",
+      },
+    ]);
+
+    const direction = interviewDirectionRef.current;
+    const systemPrompt = [
+      "你是候选人的面试答题助手。根据面试官的问题给出可直接口述的回答，重点清晰、简洁专业，不要复述问题。",
+      direction ? `面试方向：${direction}。` : "",
+    ]
+      .filter(Boolean)
+      .join("");
+
+    void chat(
+      [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: trimmed },
+      ],
+      { signal: controller.signal },
+    )
+      .then((answer) => {
+        if (chatGenerationRef.current !== generation) return;
+        setQaItems((current) =>
+          current.map((item) =>
+            item.id === id
+              ? { ...item, answer, status: "ready" }
+              : item,
+          ),
+        );
+      })
+      .catch((error: unknown) => {
+        if (
+          chatGenerationRef.current !== generation ||
+          (error instanceof DOMException && error.name === "AbortError")
+        ) {
+          return;
+        }
+        const message =
+          error instanceof Error ? error.message : "获取回答失败";
+        setQaItems((current) =>
+          current.map((item) =>
+            item.id === id
+              ? { ...item, status: "error", error: message }
+              : item,
+          ),
+        );
+      })
+      .finally(() => {
+        chatControllersRef.current.delete(id);
+      });
+  }, []);
 
   useEffect(() => {
     const transcription = new SystemAudioTranscription({
@@ -81,14 +173,18 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
         setIsStarting(false);
       },
       onResult: (text, isFinal) => {
-        if (isFinal) {
-          setFinalTranscripts((current) =>
-            current.at(-1) === text ? current : [...current, text],
-          );
-          setInterimTranscript("");
-        } else {
+        console.log("[transcription]", isFinal ? "final" : "interim", text);
+        if (!isFinal) {
           setInterimTranscript(text);
+          return;
         }
+
+        if (lastFinalTranscriptRef.current !== text) {
+          lastFinalTranscriptRef.current = text;
+          setFinalTranscripts((current) => [...current, text]);
+          requestAnswer(text);
+        }
+        setInterimTranscript("");
       },
     });
     transcriptionRef.current = transcription;
@@ -96,8 +192,9 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     return () => {
       transcription.stop();
       transcriptionRef.current = null;
+      abortPendingChats();
     };
-  }, []);
+  }, [abortPendingChats, requestAnswer]);
 
   useEffect(() => {
     if (!isStarted) return;
@@ -243,30 +340,61 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthorizing, isMac, refreshMicrophonePermission]);
 
-  const startInterview = useCallback(async () => {
-    const transcription = transcriptionRef.current;
-    if (!transcription || isStarting || isStarted) return;
+  const resetInterviewSession = useCallback(
+    (options?: { interviewDirection?: string }) => {
+      setTranscriptionError(null);
+      abortPendingChats();
+      interviewDirectionRef.current = options?.interviewDirection?.trim() ?? "";
+      lastFinalTranscriptRef.current = "";
+      setFinalTranscripts([]);
+      setQaItems([]);
+      setInterimTranscript("");
+      setElapsedSeconds(0);
+    },
+    [abortPendingChats],
+  );
 
-    setIsStarting(true);
-    setTranscriptionError(null);
-    setFinalTranscripts([]);
-    setInterimTranscript("");
-    setElapsedSeconds(0);
-    try {
-      await transcription.start(audioCapabilities.mode, captureSource);
+  const startInterview = useCallback(
+    async (options?: { interviewDirection?: string }) => {
+      const transcription = transcriptionRef.current;
+      if (!transcription || isStarting || isStarted) return;
+
+      setIsStarting(true);
+      resetInterviewSession(options);
+      try {
+        await transcription.start(audioCapabilities.mode, captureSource, {
+          interviewDirection: options?.interviewDirection,
+        });
+        setIsStarted(true);
+      } catch (error) {
+        setTranscriptionError(
+          error instanceof Error
+            ? error.message
+            : captureSource === "microphone"
+              ? "无法开始麦克风转写"
+              : "无法开始系统音频转写",
+        );
+      } finally {
+        setIsStarting(false);
+      }
+    },
+    [
+      audioCapabilities.mode,
+      captureSource,
+      isStarted,
+      isStarting,
+      resetInterviewSession,
+    ],
+  );
+
+  const startInterviewDebug = useCallback(
+    (options?: { interviewDirection?: string }) => {
+      if (isStarted || isStarting) return;
+      resetInterviewSession(options);
       setIsStarted(true);
-    } catch (error) {
-      setTranscriptionError(
-        error instanceof Error
-          ? error.message
-          : captureSource === "microphone"
-            ? "无法开始麦克风转写"
-            : "无法开始系统音频转写",
-      );
-    } finally {
-      setIsStarting(false);
-    }
-  }, [audioCapabilities.mode, captureSource, isStarted, isStarting]);
+    },
+    [isStarted, isStarting, resetInterviewSession],
+  );
 
   const stopInterview = useCallback(() => {
     transcriptionRef.current?.stop();
@@ -311,12 +439,14 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
         microphonePermission === "restricted",
       needsSystemSettings:
         capturePermission === "denied" || capturePermission === "restricted",
+      qaItems,
       systemAudioPermissionsGranted,
       transcriptionError,
       authorizeMicrophone,
       authorizeSystemCapture,
       setCaptureSource,
       startInterview,
+      startInterviewDebug,
       stopInterview,
     }),
     [
@@ -336,7 +466,9 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
       isStarting,
       microphonePermission,
       microphonePermissionsGranted,
+      qaItems,
       startInterview,
+      startInterviewDebug,
       stopInterview,
       systemAudioPermissionsGranted,
       transcriptionError,
