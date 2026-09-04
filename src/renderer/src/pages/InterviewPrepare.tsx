@@ -548,7 +548,8 @@ export function InterviewPreparePage() {
               <p className="flex items-center gap-1 text-sm">
                 选择简历
                 <HelpTip title="选择简历">
-                  选择你的简历文件，开始面试时再上传并解析，帮助 AI 更准确地理解你的背景和技能
+                  选择你的简历文件，开始面试时再上传并解析，帮助 AI
+                  更准确地理解你的背景和技能
                 </HelpTip>
               </p>
               <div className="flex-1" />
@@ -664,7 +665,9 @@ export function InterviewPreparePage() {
         ) : !user ? (
           <p className="mt-3 text-xs text-muted">请先使用微信登录</p>
         ) : remainingSeconds <= 0 ? (
-          <p className="mt-3 text-xs text-muted">时长不足，请先充值或领取体验卡</p>
+          <p className="mt-3 text-xs text-muted">
+            时长不足，请先充值或领取体验卡
+          </p>
         ) : !allPermissionsGranted ? (
           <p className="mt-3 text-xs text-muted">请先完成全部权限授权</p>
         ) : null}
@@ -701,7 +704,9 @@ export function InterviewPreparePage() {
               {transcriptionError ? (
                 <div className="flex w-full items-start gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-left text-sm text-red-600">
                   <CircleAlert className="mt-0.5 size-4 shrink-0" />
-                  <span className="min-w-0 wrap-break-word">{transcriptionError}</span>
+                  <span className="min-w-0 wrap-break-word">
+                    {transcriptionError}
+                  </span>
                 </div>
               ) : null}
               <Button

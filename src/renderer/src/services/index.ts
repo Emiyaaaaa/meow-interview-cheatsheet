@@ -39,6 +39,7 @@ export {
   type RechargePlan,
 } from "./account";
 export {
+  AI_SERVICE_URL,
   ARKASR_WS_URL,
   FUNASR_WS_URL,
   CHAT_BASE_URL,

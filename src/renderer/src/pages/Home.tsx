@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, Chip, cn, Modal } from "@heroui/react";
+import { AlertDialog, Button, Chip, cn, Modal } from "@heroui/react";
 import {
   BadgeDollarSign,
   CirclePause,
@@ -8,7 +8,6 @@ import {
   LogOut,
   Play,
   Settings,
-  UserRound,
 } from "lucide-react";
 import { useAppName } from "../appName";
 import { useAuth } from "../context/AuthContext";
@@ -31,6 +30,7 @@ export function HomePage() {
   const {
     user,
     remainingSeconds,
+    isDebugMode,
     isLoggingIn,
     loginError,
     login,
@@ -39,6 +39,7 @@ export function HomePage() {
   } = useAuth();
   const [page, setPage] = useState<Page>("prepare");
   const [loginOpen, setLoginOpen] = useState(false);
+  const [logoutOpen, setLogoutOpen] = useState(false);
 
   useEffect(() => {
     if (user) setLoginOpen(false);
@@ -47,6 +48,10 @@ export function HomePage() {
   function handleLoginOpenChange(open: boolean) {
     if (!open) cancelLogin();
     setLoginOpen(open);
+  }
+
+  async function handleLogoutConfirm() {
+    await logout();
   }
 
   return (
@@ -120,7 +125,8 @@ export function HomePage() {
         <div className="mt-auto flex flex-col gap-2">
           <div className="flex w-full justify-center items-center gap-3">
             <span className="font-mono text-sm text-muted">
-              时长剩余 {formatDuration(user ? remainingSeconds : 0)}
+              时长剩余{" "}
+              {formatDuration(user || isDebugMode ? remainingSeconds : 0)}
               <Chip className="ml-2" variant="soft" color="warning">
                 <CirclePause className="size-3" />
                 <Chip.Label>{isStarted ? "面试中" : "已暂停"}</Chip.Label>
@@ -128,29 +134,21 @@ export function HomePage() {
             </span>
           </div>
           {user ? (
-            <div className="flex items-center gap-3 rounded-xl border border-black/8 bg-[#fafafa] p-3">
-              {user.avatar_url ? (
-                <img
-                  alt=""
-                  className="size-9 rounded-full object-cover"
-                  src={user.avatar_url}
-                />
-              ) : (
-                <div className="grid size-9 place-items-center rounded-full bg-black text-white">
-                  <UserRound className="size-4" />
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="text-xs text-muted">当前账号</p>
-                <p className="truncate text-sm font-medium">
-                  {user.nickname || "微信用户"}
-                </p>
-              </div>
+            <div className="flex h-9 w-full items-center gap-2 rounded-md bg-[#ecebeb] px-3">
+              <img
+                alt=""
+                className="size-6 shrink-0 rounded-full object-cover"
+                src={user.avatar_url!}
+              />
+              <p className="min-w-0 flex-1 truncate text-sm font-medium">
+                {user.nickname || "微信用户"}
+              </p>
               <Button
                 aria-label="退出登录"
                 size="sm"
                 variant="ghost"
-                onPress={() => void logout()}
+                className="size-7 min-w-7 shrink-0 p-0"
+                onPress={() => setLogoutOpen(true)}
               >
                 <LogOut className="size-4" />
               </Button>
@@ -186,9 +184,6 @@ export function HomePage() {
           <Modal.Dialog>
             <Modal.CloseTrigger />
             <Modal.Header>
-              <Modal.Icon className="bg-[#07c160] text-white">
-                <UserRound className="size-5" />
-              </Modal.Icon>
               <Modal.Heading>微信扫码登录</Modal.Heading>
             </Modal.Header>
             <Modal.Body className="gap-5">
@@ -222,6 +217,34 @@ export function HomePage() {
           </Modal.Dialog>
         </Modal.Container>
       </Modal.Backdrop>
+
+      <AlertDialog.Backdrop isOpen={logoutOpen} onOpenChange={setLogoutOpen}>
+        <AlertDialog.Container>
+          <AlertDialog.Dialog className="sm:max-w-100">
+            <AlertDialog.CloseTrigger />
+            <AlertDialog.Header>
+              <AlertDialog.Heading>确认退出登录？</AlertDialog.Heading>
+            </AlertDialog.Header>
+            <AlertDialog.Body>
+              <p className="text-sm text-muted">
+                退出后需要重新扫码登录才能继续使用账号相关功能。
+              </p>
+            </AlertDialog.Body>
+            <AlertDialog.Footer>
+              <Button slot="close" variant="tertiary">
+                取消
+              </Button>
+              <Button
+                slot="close"
+                variant="danger"
+                onPress={() => void handleLogoutConfirm()}
+              >
+                退出登录
+              </Button>
+            </AlertDialog.Footer>
+          </AlertDialog.Dialog>
+        </AlertDialog.Container>
+      </AlertDialog.Backdrop>
     </div>
   );
 }

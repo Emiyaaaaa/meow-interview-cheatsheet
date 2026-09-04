@@ -13,11 +13,17 @@ import {
 const PCM_CHUNK_BYTES = 3_200;
 
 interface DashScopeEvent {
+  code?: string;
+  error?: string | { code?: string; message?: string };
+  error_code?: string;
+  error_message?: string;
   header?: {
+    error_code?: string;
     error_message?: string;
     event?: string;
     task_id?: string;
   };
+  message?: string;
   payload?: {
     output?: {
       transcription?: {
@@ -26,6 +32,58 @@ interface DashScopeEvent {
       };
     };
   };
+}
+
+function firstNonEmpty(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function formatDashScopeError(message: DashScopeEvent, raw: string) {
+  const header = message.header;
+  const nested =
+    message.error && typeof message.error === "object" ? message.error : null;
+  const text = firstNonEmpty(
+    header?.error_message,
+    message.error_message,
+    message.message,
+    nested?.message,
+    typeof message.error === "string" ? message.error : undefined,
+  );
+  const code = firstNonEmpty(
+    header?.error_code,
+    message.error_code,
+    message.code,
+    nested?.code,
+  );
+  if (code && text) return `${code}: ${text}`;
+  return text || code || raw || "语音识别任务失败";
+}
+
+function isDashScopeError(message: DashScopeEvent, event: string | undefined) {
+  if (event === "task-failed" || event === "error") return true;
+  if (
+    event === "task-started" ||
+    event === "result-generated" ||
+    event === "task-finished"
+  ) {
+    return false;
+  }
+  return Boolean(
+    firstNonEmpty(
+      message.header?.error_code,
+      message.header?.error_message,
+      message.error_code,
+      message.error_message,
+      typeof message.error === "string" ? message.error : undefined,
+      message.error && typeof message.error === "object"
+        ? message.error.message
+        : undefined,
+      message.code && message.message ? message.message : undefined,
+    ),
+  );
 }
 
 function createTaskId() {
@@ -134,18 +192,19 @@ export class FunAsrSession implements AsrSession {
         this.callbacks.onError(error.message);
       });
 
-      socket.addEventListener("close", () => {
+      socket.addEventListener("close", (event) => {
         if (this.socket !== socket) return;
         const stoppedNormally = this.userStopping;
         const hadStarted = this.sessionReady;
+        const reason = event.reason.trim();
         this.resetSocket();
         this.callbacks.onClose?.();
         if (stoppedNormally) return;
-        if (hadStarted) {
-          this.callbacks.onError("语音识别连接已断开");
-          return;
-        }
-        this.rejectStart(new Error("语音识别服务连接失败"));
+        const message =
+          reason ||
+          (hadStarted ? "语音识别连接已断开" : "语音识别服务连接失败");
+        if (!hadStarted) this.rejectStart(new Error(message));
+        this.callbacks.onError(message);
       });
 
       this.startTimeoutTimer = setTimeout(() => {
@@ -222,11 +281,15 @@ export class FunAsrSession implements AsrSession {
     try {
       message = JSON.parse(data) as DashScopeEvent;
     } catch {
-      this.callbacks.onError("无法解析语音识别服务返回的数据");
+      this.fail(data);
       return;
     }
 
     const event = message.header?.event;
+    if (isDashScopeError(message, event)) {
+      this.fail(formatDashScopeError(message, data));
+      return;
+    }
     if (!event) return;
 
     switch (event) {
@@ -240,16 +303,14 @@ export class FunAsrSession implements AsrSession {
         return;
       case "task-finished":
         this.userStopping = true;
-        return;
-      case "task-failed": {
-        const error = new Error(
-          message.header?.error_message || "语音识别任务失败",
-        );
-        this.rejectStart(error);
-        this.callbacks.onError(error.message);
-        this.close();
-      }
     }
+  }
+
+  private fail(message: string) {
+    const error = new Error(message);
+    this.rejectStart(error);
+    this.callbacks.onError(error.message);
+    this.close();
   }
 
   private emitTranscript(message: DashScopeEvent) {

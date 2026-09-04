@@ -92,7 +92,9 @@
     "protocols": [
       {
         "name": "interview-cheatsheet",
-        "schemes": ["interview-cheatsheet"]
+        "schemes": [
+          "interview-cheatsheet"
+        ]
       }
     ]
   }
