@@ -31,6 +31,14 @@
     margin: 0;
   }
 
+  html.overlay-window,
+  html.overlay-window body,
+  html.overlay-window #root {
+    min-height: 100%;
+    height: 100%;
+    background: transparent;
+  }
+
   body {
     overflow: hidden;
     font-family:
@@ -58,5 +66,11 @@
   }
   .card {
     @apply rounded-xl;
+  }
+  .app-drag {
+    -webkit-app-region: drag;
+  }
+  .app-no-drag {
+    -webkit-app-region: no-drag;
   }
 }

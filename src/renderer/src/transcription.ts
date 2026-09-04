@@ -68,35 +68,33 @@ export class SystemAudioTranscription {
 
       if (captureMode === "core-audio") {
         this.usingCoreAudio = true;
-        this.unsubscribeCoreAudioData = window.desktop.onSystemAudioData(
-          (data) => {
-            this.asr.sendAudio(data);
-          },
-        );
         this.unsubscribeCoreAudioError = window.desktop.onSystemAudioError(
           (message) => this.callbacks.onError(message),
         );
+        this.unsubscribeCoreAudioData = window.desktop.onSystemAudioData(
+          (data) => this.asr.sendAudio(data),
+        );
+        await this.asr.start(asrOptions);
         await window.desktop.startCoreAudioCapture();
-      } else {
-        this.mediaStream = await navigator.mediaDevices.getDisplayMedia({
-          audio: true,
-          video: true,
-        });
+        return;
+      }
 
-        for (const track of this.mediaStream.getVideoTracks()) {
-          track.stop();
-          this.mediaStream.removeTrack(track);
-        }
+      this.mediaStream = await navigator.mediaDevices.getDisplayMedia({
+        audio: true,
+        video: true,
+      });
 
-        if (this.mediaStream.getAudioTracks().length === 0) {
-          throw new Error("未获取到系统音频，请在系统设置中允许录制系统音频");
-        }
+      for (const track of this.mediaStream.getVideoTracks()) {
+        track.stop();
+        this.mediaStream.removeTrack(track);
+      }
+
+      if (this.mediaStream.getAudioTracks().length === 0) {
+        throw new Error("未获取到系统音频，请在系统设置中允许录制系统音频");
       }
 
       await this.asr.start(asrOptions);
-      if (!this.usingCoreAudio) {
-        await this.startAudioPipeline();
-      }
+      await this.startAudioPipeline();
     } catch (error) {
       this.cleanup();
       throw error;
@@ -138,8 +136,8 @@ export class SystemAudioTranscription {
 
   private stopAudioPipeline() {
     this.unsubscribeCoreAudioData?.();
-    this.unsubscribeCoreAudioError?.();
     this.unsubscribeCoreAudioData = null;
+    this.unsubscribeCoreAudioError?.();
     this.unsubscribeCoreAudioError = null;
     if (this.usingCoreAudio) {
       this.usingCoreAudio = false;

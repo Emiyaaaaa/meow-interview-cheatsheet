@@ -6,6 +6,7 @@ import {
   Input,
   Label,
   ListBox,
+  Modal,
   Radio,
   RadioGroup,
   Separator,
@@ -16,7 +17,9 @@ import {
   AudioLines,
   Briefcase,
   Check,
+  CircleAlert,
   FileText,
+  ListChecks,
   MessageSquare,
   Mic,
   MonitorUp,
@@ -24,10 +27,16 @@ import {
   Settings,
   Volume2,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { HelpTip } from "../components/HelpTip";
+import { useAuth } from "../context/AuthContext";
 import { useInterview } from "../context/InterviewContext";
-import { checkAsrConnection, checkChatConnection } from "../services";
+import {
+  checkAsrConnection,
+  checkChatConnection,
+  uploadResumeFile,
+  waitForFileReady,
+} from "../services";
 
 const INTERVIEW_DIRECTIONS = [
   { id: "frontend", name: "前端开发" },
@@ -102,6 +111,13 @@ function PermissionStatus({
 }
 
 type ApiCheckState = "idle" | "checking" | "ok" | "error";
+type PrepStepState = "idle" | "loading" | "ok" | "error";
+
+interface SelectedResume {
+  md5: string;
+  name: string;
+  path: string;
+}
 
 function ApiCheckStatus({
   errorLabel,
@@ -139,6 +155,41 @@ function ApiCheckStatus({
   );
 }
 
+function PrepStepRow({
+  label,
+  state,
+  statusText,
+}: {
+  label: string;
+  state: PrepStepState;
+  statusText: string;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <p className="text-sm">{label}</p>
+      <div className="flex-1" />
+      <div className="flex min-w-0 max-w-52 items-center justify-end gap-1.5 text-xs">
+        {state === "loading" ? (
+          <>
+            <Spinner size="sm" />
+            <span className="truncate text-muted">{statusText}</span>
+          </>
+        ) : state === "ok" ? (
+          <>
+            <Check className="size-3.5 shrink-0 text-emerald-600" />
+            <span className="truncate text-emerald-600">{statusText}</span>
+          </>
+        ) : state === "error" ? (
+          <>
+            <CircleAlert className="size-3.5 shrink-0 text-red-500" />
+            <span className="truncate text-red-500">{statusText}</span>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function InterviewPreparePage() {
   const {
     allPermissionsGranted,
@@ -161,13 +212,22 @@ export function InterviewPreparePage() {
     systemAudioPermissionsGranted,
     transcriptionError,
   } = useInterview();
-  const [resume, setResume] = useState<ResumeFileSelection | null>(null);
+  const { user, remainingSeconds } = useAuth();
+  const [resume, setResume] = useState<SelectedResume | null>(null);
   const [isPickingResume, setIsPickingResume] = useState(false);
   const [interviewDirection, setInterviewDirection] = useState("");
   const [asrCheckState, setAsrCheckState] = useState<ApiCheckState>("idle");
   const [asrCheckError, setAsrCheckError] = useState("");
   const [chatCheckState, setChatCheckState] = useState<ApiCheckState>("idle");
   const [chatCheckError, setChatCheckError] = useState("");
+  const [prepOpen, setPrepOpen] = useState(false);
+  const [resumeStep, setResumeStep] = useState<PrepStepState>("idle");
+  const [resumeStatusText, setResumeStatusText] = useState("");
+  const [asrStep, setAsrStep] = useState<PrepStepState>("idle");
+  const [asrStatusText, setAsrStatusText] = useState("");
+  const [resumeFileId, setResumeFileId] = useState("");
+  const [debug2State, setDebug2State] = useState<ApiCheckState>("idle");
+  const [debug2Error, setDebug2Error] = useState("");
 
   async function handleCheckAsr() {
     setAsrCheckState("checking");
@@ -179,6 +239,21 @@ export function InterviewPreparePage() {
       setAsrCheckState("error");
       setAsrCheckError(
         error instanceof Error ? error.message : "语音识别服务检测失败",
+      );
+      console.error(error);
+    }
+  }
+
+  async function handleDebug2() {
+    setDebug2State("checking");
+    setDebug2Error("");
+    try {
+      await checkAsrConnection();
+      setDebug2State("ok");
+    } catch (error) {
+      setDebug2State("error");
+      setDebug2Error(
+        error instanceof Error ? error.message : "渲染层 WebSocket 连接失败",
       );
       console.error(error);
     }
@@ -199,16 +274,120 @@ export function InterviewPreparePage() {
     }
   }
 
+  useEffect(() => {
+    if (!prepOpen) return;
+
+    const controller = new AbortController();
+    let cancelled = false;
+
+    setResumeFileId("");
+    setAsrStep("loading");
+    setAsrStatusText("连接中");
+    if (!resume) {
+      setResumeStep("ok");
+      setResumeStatusText("未选择");
+    } else {
+      setResumeStep("loading");
+      setResumeStatusText("上传中");
+    }
+
+    async function prepareResume() {
+      if (!resume) {
+        if (cancelled) return;
+        setResumeStep("ok");
+        setResumeStatusText("未选择");
+        return;
+      }
+
+      try {
+        const uploaded = await uploadResumeFile(resume, {
+          signal: controller.signal,
+        });
+        if (cancelled) return;
+
+        if (uploaded.status === "active") {
+          setResumeFileId(uploaded.id);
+          setResumeStep("ok");
+          setResumeStatusText("完成");
+          return;
+        }
+
+        setResumeStatusText("解析中");
+        const ready = await waitForFileReady(uploaded.id, controller.signal);
+        if (cancelled) return;
+
+        setResumeFileId(ready.id);
+        setResumeStep("ok");
+        setResumeStatusText("完成");
+      } catch (error) {
+        if (
+          cancelled ||
+          (error instanceof Error &&
+            (error.name === "AbortError" || /abort/i.test(error.message)))
+        ) {
+          return;
+        }
+        setResumeStep("error");
+        setResumeStatusText(
+          error instanceof Error ? error.message : "文件上传失败",
+        );
+      }
+    }
+
+    async function prepareAsr() {
+      try {
+        await checkAsrConnection();
+        if (cancelled) return;
+        setAsrStep("ok");
+        setAsrStatusText("已连接");
+      } catch (error) {
+        if (cancelled) return;
+        setAsrStep("error");
+        setAsrStatusText(
+          error instanceof Error ? error.message : "语音识别服务连接失败",
+        );
+        console.error(error);
+      }
+    }
+
+    void prepareResume();
+    void prepareAsr();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [prepOpen, resume]);
+
   async function handlePickResume() {
     setIsPickingResume(true);
     try {
       const selected = await window.desktop.pickResumeFile();
-      if (selected) {
-        setResume(selected);
-      }
+      if (!selected) return;
+      setResume({
+        md5: selected.md5,
+        name: selected.name,
+        path: selected.path,
+      });
     } finally {
       setIsPickingResume(false);
     }
+  }
+
+  function handlePrepOpenChange(open: boolean) {
+    if (isStarting) return;
+    setPrepOpen(open);
+  }
+
+  const canStart =
+    Boolean(user) && remainingSeconds > 0 && allPermissionsGranted;
+
+  async function handleStartFromPrep() {
+    if (!canStart || resumeStep !== "ok" || asrStep !== "ok") return;
+    await startInterview({
+      interviewDirection: interviewDirection.trim() || undefined,
+      resumeFileId: resumeFileId || undefined,
+    });
   }
 
   return (
@@ -369,16 +548,15 @@ export function InterviewPreparePage() {
               <p className="flex items-center gap-1 text-sm">
                 选择简历
                 <HelpTip title="选择简历">
-                  上传你的简历文件，帮助 AI 更准确地理解你的背景和技能
+                  选择你的简历文件，开始面试时再上传并解析，帮助 AI 更准确地理解你的背景和技能
                 </HelpTip>
               </p>
               <div className="flex-1" />
               {resume ? (
                 <div className="flex items-center gap-2">
-                  <div className="flex shrink items-center gap-2 text-xs text-emerald-600">
-                    <Check className="size-3 shrink-0" />
-                    <span className="truncate">{resume.name}</span>
-                  </div>
+                  <span className="max-w-40 truncate text-xs">
+                    {resume.name}
+                  </span>
                   <Button
                     className="text-xs h-6"
                     isPending={isPickingResume}
@@ -447,24 +625,16 @@ export function InterviewPreparePage() {
       <div className="flex flex-col items-center justify-center py-2 text-center">
         <Button
           className="mt-4 h-12 min-w-52 bg-emerald-600/20 px-8 text-base text-emerald-700"
-          isDisabled={!allPermissionsGranted}
-          isPending={isStarting}
+          isDisabled={!canStart}
           size="lg"
-          onPress={() =>
-            void startInterview({
-              interviewDirection: interviewDirection.trim() || undefined,
-            })
-          }
+          onPress={() => setPrepOpen(true)}
         >
-          {({ isPending }) => (
-            <>
-              {isPending ? <Spinner size="sm" /> : <Play size="sm" />}
-              {isPending ? "连接服务" : "开始面试"}
-            </>
-          )}
+          <Play size="sm" />
+          开始面试
         </Button>
         <Button
           className="mt-2 h-8 min-w-52 text-xs text-muted"
+          isDisabled={!user}
           size="sm"
           variant="tertiary"
           onPress={() =>
@@ -475,12 +645,82 @@ export function InterviewPreparePage() {
         >
           Debug
         </Button>
+        <Button
+          className="mt-2 h-8 min-w-52 text-xs text-muted"
+          isPending={debug2State === "checking"}
+          size="sm"
+          variant="tertiary"
+          onPress={() => void handleDebug2()}
+        >
+          Debug2
+        </Button>
+        {debug2State === "ok" ? (
+          <p className="mt-2 text-xs text-emerald-600">渲染层 WS 已连接</p>
+        ) : debug2State === "error" ? (
+          <p className="mt-2 text-xs text-red-600">{debug2Error}</p>
+        ) : null}
         {transcriptionError ? (
           <p className="mt-3 text-sm text-red-600">{transcriptionError}</p>
+        ) : !user ? (
+          <p className="mt-3 text-xs text-muted">请先使用微信登录</p>
+        ) : remainingSeconds <= 0 ? (
+          <p className="mt-3 text-xs text-muted">时长不足，请先充值或领取体验卡</p>
         ) : !allPermissionsGranted ? (
           <p className="mt-3 text-xs text-muted">请先完成全部权限授权</p>
         ) : null}
       </div>
+
+      <Modal.Backdrop
+        isDismissable={!isStarting}
+        isKeyboardDismissDisabled={isStarting}
+        isOpen={prepOpen}
+        onOpenChange={handlePrepOpenChange}
+      >
+        <Modal.Container size="sm">
+          <Modal.Dialog>
+            {isStarting ? null : <Modal.CloseTrigger />}
+            <Modal.Header>
+              <Modal.Icon className="bg-emerald-600/15 text-emerald-700">
+                <ListChecks className="size-5" />
+              </Modal.Icon>
+              <Modal.Heading>准备工作</Modal.Heading>
+            </Modal.Header>
+            <Modal.Body className="gap-4">
+              <PrepStepRow
+                label="简历文件上传并解析"
+                state={resumeStep}
+                statusText={resumeStatusText}
+              />
+              <PrepStepRow
+                label="连接语音识别服务"
+                state={asrStep}
+                statusText={asrStatusText}
+              />
+            </Modal.Body>
+            <Modal.Footer className="flex-col gap-3">
+              {transcriptionError ? (
+                <div className="flex w-full items-start gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-left text-sm text-red-600">
+                  <CircleAlert className="mt-0.5 size-4 shrink-0" />
+                  <span className="min-w-0 wrap-break-word">{transcriptionError}</span>
+                </div>
+              ) : null}
+              <Button
+                className="w-full bg-emerald-600/20 text-emerald-700"
+                isDisabled={resumeStep !== "ok" || asrStep !== "ok"}
+                isPending={isStarting}
+                onPress={() => void handleStartFromPrep()}
+              >
+                {({ isPending }) => (
+                  <>
+                    {isPending ? <Spinner size="sm" /> : <Play size="sm" />}
+                    {isPending ? "连接服务中…" : "开始面试"}
+                  </>
+                )}
+              </Button>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
     </div>
   );
 }

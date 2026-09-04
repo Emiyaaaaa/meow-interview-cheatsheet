@@ -1,23 +1,17 @@
-import { useState, type FormEvent } from "react";
-import {
-  Button,
-  Chip,
-  cn,
-  Input,
-  Label,
-  Modal,
-  TextField,
-} from "@heroui/react";
+import { useEffect, useState } from "react";
+import { Button, Chip, cn, Modal } from "@heroui/react";
 import {
   BadgeDollarSign,
   CirclePause,
   Clock,
   LogIn,
+  LogOut,
   Play,
   Settings,
   UserRound,
 } from "lucide-react";
 import { useAppName } from "../appName";
+import { useAuth } from "../context/AuthContext";
 import { useInterview } from "../context/InterviewContext";
 import { InterviewPreparePage } from "./InterviewPrepare";
 import { RechargePage } from "./Recharge";
@@ -33,20 +27,26 @@ type Page = "prepare" | "recharge" | "settings";
 
 export function HomePage() {
   const { appName, setAppName } = useAppName();
-  const { elapsedSeconds } = useInterview();
+  const { isStarted } = useInterview();
+  const {
+    user,
+    remainingSeconds,
+    isLoggingIn,
+    loginError,
+    login,
+    cancelLogin,
+    logout,
+  } = useAuth();
   const [page, setPage] = useState<Page>("prepare");
-  const [phone, setPhone] = useState<string | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
-  const [phoneInput, setPhoneInput] = useState("");
-  const [codeInput, setCodeInput] = useState("");
-  const [codeSent, setCodeSent] = useState(false);
 
-  function handleLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!/^1\d{10}$/.test(phoneInput) || codeInput.length !== 6) return;
-    setPhone(phoneInput);
-    setLoginOpen(false);
-    setCodeInput("");
+  useEffect(() => {
+    if (user) setLoginOpen(false);
+  }, [user]);
+
+  function handleLoginOpenChange(open: boolean) {
+    if (!open) cancelLogin();
+    setLoginOpen(open);
   }
 
   return (
@@ -120,28 +120,49 @@ export function HomePage() {
         <div className="mt-auto flex flex-col gap-2">
           <div className="flex w-full justify-center items-center gap-3">
             <span className="font-mono text-sm text-muted">
-              时长剩余 {formatDuration(elapsedSeconds)}
+              时长剩余 {formatDuration(user ? remainingSeconds : 0)}
               <Chip className="ml-2" variant="soft" color="warning">
                 <CirclePause className="size-3" />
-                <Chip.Label>已暂停</Chip.Label>
+                <Chip.Label>{isStarted ? "面试中" : "已暂停"}</Chip.Label>
               </Chip>
             </span>
           </div>
-          {phone ? (
+          {user ? (
             <div className="flex items-center gap-3 rounded-xl border border-black/8 bg-[#fafafa] p-3">
-              <div className="grid size-9 place-items-center rounded-full bg-black text-white">
-                <UserRound className="size-4" />
-              </div>
-              <div className="min-w-0">
+              {user.avatar_url ? (
+                <img
+                  alt=""
+                  className="size-9 rounded-full object-cover"
+                  src={user.avatar_url}
+                />
+              ) : (
+                <div className="grid size-9 place-items-center rounded-full bg-black text-white">
+                  <UserRound className="size-4" />
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
                 <p className="text-xs text-muted">当前账号</p>
-                <p className="truncate text-sm font-medium">{phone}</p>
+                <p className="truncate text-sm font-medium">
+                  {user.nickname || "微信用户"}
+                </p>
               </div>
+              <Button
+                aria-label="退出登录"
+                size="sm"
+                variant="ghost"
+                onPress={() => void logout()}
+              >
+                <LogOut className="size-4" />
+              </Button>
             </div>
           ) : (
             <Button
               fullWidth
               variant="tertiary"
-              onPress={() => setLoginOpen(true)}
+              onPress={() => {
+                setLoginOpen(true);
+                void login();
+              }}
             >
               <LogIn className="size-4" />
               登录
@@ -160,80 +181,44 @@ export function HomePage() {
         )}
       </main>
 
-      <Modal.Backdrop isOpen={loginOpen} onOpenChange={setLoginOpen}>
+      <Modal.Backdrop isOpen={loginOpen} onOpenChange={handleLoginOpenChange}>
         <Modal.Container size="sm">
           <Modal.Dialog>
             <Modal.CloseTrigger />
             <Modal.Header>
-              <Modal.Icon className="bg-black text-white">
+              <Modal.Icon className="bg-[#07c160] text-white">
                 <UserRound className="size-5" />
               </Modal.Icon>
-              <Modal.Heading>手机号登录</Modal.Heading>
+              <Modal.Heading>微信扫码登录</Modal.Heading>
             </Modal.Header>
-            <form onSubmit={handleLogin}>
-              <Modal.Body className="gap-5">
+            <Modal.Body className="gap-5">
+              <p className="text-sm text-muted">
+                已在浏览器打开微信扫码页。扫码确认后会自动回到应用。
+              </p>
+              {loginError ? (
+                <p className="text-sm text-red-600">{loginError}</p>
+              ) : (
                 <p className="text-sm text-muted">
-                  登录后即可同步你的剩余时长与面试记录。
+                  {isLoggingIn ? "等待扫码确认…" : "可重新发起登录"}
                 </p>
-                <TextField name="phone" type="tel">
-                  <Label>手机号</Label>
-                  <Input
-                    fullWidth
-                    maxLength={11}
-                    placeholder="请输入 11 位手机号"
-                    value={phoneInput}
-                    onChange={(event) =>
-                      setPhoneInput(
-                        event.currentTarget.value.replace(/\D/g, ""),
-                      )
-                    }
-                  />
-                </TextField>
-                <div className="flex items-end gap-2">
-                  <TextField className="min-w-0 flex-1" name="code">
-                    <Label>验证码</Label>
-                    <Input
-                      fullWidth
-                      maxLength={6}
-                      placeholder="请输入验证码"
-                      value={codeInput}
-                      onChange={(event) =>
-                        setCodeInput(
-                          event.currentTarget.value.replace(/\D/g, ""),
-                        )
-                      }
-                    />
-                  </TextField>
-                  <Button
-                    className="mb-px shrink-0"
-                    isDisabled={!/^1\d{10}$/.test(phoneInput)}
-                    type="button"
-                    variant="secondary"
-                    onPress={() => setCodeSent(true)}
-                  >
-                    {codeSent ? "已发送 123456" : "获取验证码"}
-                  </Button>
-                </div>
-              </Modal.Body>
-              <Modal.Footer>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onPress={() => setLoginOpen(false)}
-                >
-                  取消
-                </Button>
-                <Button
-                  className="bg-black text-white"
-                  isDisabled={
-                    !/^1\d{10}$/.test(phoneInput) || codeInput.length !== 6
-                  }
-                  type="submit"
-                >
-                  登录
-                </Button>
-              </Modal.Footer>
-            </form>
+              )}
+            </Modal.Body>
+            <Modal.Footer>
+              <Button
+                type="button"
+                variant="secondary"
+                onPress={() => handleLoginOpenChange(false)}
+              >
+                取消
+              </Button>
+              <Button
+                className="bg-[#07c160] text-white"
+                isPending={isLoggingIn}
+                onPress={() => void login()}
+              >
+                {isLoggingIn ? "等待扫码" : "重新打开扫码"}
+              </Button>
+            </Modal.Footer>
           </Modal.Dialog>
         </Modal.Container>
       </Modal.Backdrop>

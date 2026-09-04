@@ -1,13 +1,18 @@
-const host = import.meta.env.VITE_API_HOST?.trim();
+const serviceUrl =
+  import.meta.env.VITE_SERVICE_URL?.trim() || "http://localhost:3000";
 
-if (!host) {
-  throw new Error("缺少 VITE_API_HOST，请在项目根目录的 .env 中配置网关地址");
-}
+export const SERVICE_URL = serviceUrl.replace(/\/$/, "");
 
-export const API_HOST = host;
+export const SERVICE_WS_URL = SERVICE_URL.replace(/^http/i, "ws");
 
-export const API_BASE_URL = `https://${API_HOST}`;
+export const ARKASR_WS_URL = `${SERVICE_WS_URL}/ark-openspeech/api/v3/sauc/bigmodel_async`;
 
-export const ASR_WS_URL = `wss://${API_HOST}/api-ws/v1/inference`;
+export const FUNASR_WS_URL = `${SERVICE_WS_URL}/qwen-asr/api-ws/v1/inference`;
 
-export const CHAT_COMPLETIONS_URL = `${API_BASE_URL}/v1/chat/completions`;
+export const FILES_URL = `${SERVICE_URL}/api/v3/files`;
+
+export const DEFAULT_CHAT_MODEL =
+  import.meta.env.VITE_CHAT_MODEL?.trim() || "doubao-seed-2-1-pro-260628";
+
+/** OpenAI SDK 会请求 `{CHAT_BASE_URL}/responses`，由服务端按模型名转发到真正的上游。 */
+export const CHAT_BASE_URL = SERVICE_URL;

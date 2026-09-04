@@ -9,8 +9,23 @@ import {
   systemPreferences,
 } from "electron";
 import { AudioTee, type AudioChunk } from "audiotee";
-import { join } from "node:path";
-import { CHAT_COMPLETIONS_URL } from "../shared/api";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { basename, join, resolve } from "node:path";
+import { FILES_URL } from "../shared/api";
+import type { OverlayInterviewState } from "../shared/overlay";
+import {
+  configureCaptureExclusion,
+  destroyOverlayWindow,
+  getLastOverlayState,
+  hideOverlayWindow,
+  isOverlayVisible,
+  setLastOverlayState,
+  setOverlayDismissHandler,
+  showOverlayWindow,
+} from "./overlay";
+
+configureCaptureExclusion(app);
 
 type SystemAudioCaptureMode =
   "core-audio" | "screen-capture" | "loopback" | "unsupported";
@@ -24,14 +39,92 @@ const PERMISSION_SETTINGS_URL: Record<PermissionKind, string> = {
     "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
 };
 
+const AUTH_PROTOCOL = "interview-cheatsheet";
+
 let coreAudioCapture: AudioTee | null = null;
-const chatAbortControllers = new Map<string, AbortController>();
-const abortedChatRequests = new Set<string>();
+let mainWindow: BrowserWindow | null = null;
+const fileUploadAbortControllers = new Map<string, AbortController>();
+const abortedFileUploads = new Set<string>();
+let pendingAuthUrl: string | null = null;
+
+function isAuthUrl(value: string) {
+  return value.startsWith(`${AUTH_PROTOCOL}://`);
+}
+
+function findAuthUrl(argv: string[]) {
+  return argv.find(isAuthUrl) ?? null;
+}
+
+function deliverAuthUrl(url: string) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    pendingAuthUrl = url;
+    return;
+  }
+  pendingAuthUrl = null;
+  restoreMainWindow();
+  mainWindow.webContents.send("auth:callback", url);
+}
+
+function registerAuthProtocol() {
+  if (process.defaultApp) {
+    const appPath = process.argv[1] ? resolve(process.argv[1]) : undefined;
+    if (appPath) {
+      app.setAsDefaultProtocolClient(AUTH_PROTOCOL, process.execPath, [
+        appPath,
+      ]);
+      return;
+    }
+  }
+  app.setAsDefaultProtocolClient(AUTH_PROTOCOL);
+}
+
+function isAllowedExternalUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === `${AUTH_PROTOCOL}:`) return true;
+    if (parsed.protocol === "https:") return true;
+    return (
+      parsed.protocol === "http:" &&
+      (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function preloadPath() {
+  return join(__dirname, "../preload/index.cjs");
+}
+
+function restoreMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.setSkipTaskbar(false);
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function hideMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.setSkipTaskbar(true);
+  mainWindow.hide();
+}
 
 function abortError() {
   const error = new Error("Aborted");
   error.name = "AbortError";
   return error;
+}
+
+function mimeTypeForName(name: string) {
+  const ext = name.split(".").pop()?.toLowerCase();
+  if (ext === "pdf") return "application/pdf";
+  if (ext === "doc") return "application/msword";
+  if (ext === "docx") {
+    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  }
+  if (ext === "txt") return "text/plain";
+  if (ext === "md") return "text/markdown";
+  return "application/octet-stream";
 }
 
 function getSystemAudioCapabilities(): {
@@ -121,10 +214,12 @@ function configurePermissionHandlers() {
     });
     coreAudioCapture = capture;
 
+    // 系统音频在主进程采集，PCM 送到渲染进程再走 WebSocket。
     capture.on("data", (chunk: AudioChunk) => {
-      if (!event.sender.isDestroyed()) {
-        event.sender.send("system-audio:data", chunk.data);
-      }
+      if (event.sender.isDestroyed()) return;
+      const copy = new Uint8Array(chunk.data.byteLength);
+      copy.set(chunk.data);
+      event.sender.send("system-audio:data", copy);
     });
     capture.on("error", (error) => {
       if (!event.sender.isDestroyed()) {
@@ -157,55 +252,6 @@ function configurePermissionHandlers() {
     }
   });
 
-  ipcMain.handle(
-    "chat:completions",
-    async (_event, requestId: string, body: unknown) => {
-      const controller = new AbortController();
-      chatAbortControllers.set(requestId, controller);
-
-      if (abortedChatRequests.delete(requestId)) {
-        chatAbortControllers.delete(requestId);
-        throw abortError();
-      }
-
-      try {
-        const response = await fetch(CHAT_COMPLETIONS_URL, {
-          method: "POST",
-          headers: {
-            Accept: "*/*",
-            "Content-Type": "application/json",
-            "User-Agent": "Interview-Cheatsheet/0.1.0",
-          },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-
-        return {
-          body: await response.text(),
-          ok: response.ok,
-          status: response.status,
-        };
-      } catch (error) {
-        if (controller.signal.aborted) {
-          throw abortError();
-        }
-        throw error;
-      } finally {
-        chatAbortControllers.delete(requestId);
-        abortedChatRequests.delete(requestId);
-      }
-    },
-  );
-
-  ipcMain.on("chat:completions:abort", (_event, requestId: string) => {
-    const controller = chatAbortControllers.get(requestId);
-    if (controller) {
-      controller.abort();
-      return;
-    }
-    abortedChatRequests.add(requestId);
-  });
-
   ipcMain.handle("dialog:pick-resume-file", async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender);
     const result = window
@@ -235,11 +281,125 @@ function configurePermissionHandlers() {
     }
 
     const filePath = result.filePaths[0];
+    const data = await readFile(filePath);
     return {
-      name: filePath.split(/[/\\]/).pop() ?? filePath,
+      md5: createHash("md5").update(data).digest("hex"),
+      name: basename(filePath),
       path: filePath,
     };
   });
+
+  ipcMain.handle("shell:open-external", async (_event, url: string) => {
+    if (!isAllowedExternalUrl(url)) {
+      throw new Error("不允许打开该链接");
+    }
+    await shell.openExternal(url);
+  });
+
+  ipcMain.handle(
+    "files:upload",
+    async (
+      _event,
+      requestId: string,
+      filePath: string,
+      accessToken: string,
+    ) => {
+      const controller = new AbortController();
+      fileUploadAbortControllers.set(requestId, controller);
+
+      if (abortedFileUploads.delete(requestId)) {
+        fileUploadAbortControllers.delete(requestId);
+        throw abortError();
+      }
+
+      try {
+        const data = await readFile(filePath);
+        const name = basename(filePath);
+        const copy = new ArrayBuffer(data.byteLength);
+        new Uint8Array(copy).set(data);
+        const body = new FormData();
+        body.append("purpose", "user_data");
+        body.append(
+          "file",
+          new Blob([copy], { type: mimeTypeForName(name) }),
+          name,
+        );
+
+        const response = await fetch(FILES_URL, {
+          method: "POST",
+          headers: accessToken
+            ? { Authorization: `Bearer ${accessToken}` }
+            : undefined,
+          body,
+          signal: controller.signal,
+        });
+
+        return {
+          body: await response.text(),
+          ok: response.ok,
+          status: response.status,
+        };
+      } catch (error) {
+        if (controller.signal.aborted) {
+          throw abortError();
+        }
+        throw error;
+      } finally {
+        fileUploadAbortControllers.delete(requestId);
+        abortedFileUploads.delete(requestId);
+      }
+    },
+  );
+
+  ipcMain.on("files:upload:abort", (_event, requestId: string) => {
+    const controller = fileUploadAbortControllers.get(requestId);
+    if (controller) {
+      controller.abort();
+      return;
+    }
+    abortedFileUploads.add(requestId);
+  });
+}
+
+function configureOverlayHandlers() {
+  ipcMain.handle("overlay:show", () => {
+    hideMainWindow();
+    try {
+      showOverlayWindow(preloadPath());
+    } catch (error) {
+      restoreMainWindow();
+      throw error;
+    }
+  });
+
+  ipcMain.handle("overlay:hide", () => {
+    hideOverlayWindow();
+    restoreMainWindow();
+  });
+
+  ipcMain.on("overlay:publish-state", (_event, state: OverlayInterviewState) => {
+    setLastOverlayState(state);
+  });
+
+  ipcMain.handle("overlay:get-state", () => getLastOverlayState());
+
+  ipcMain.handle("overlay:request-stop", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("overlay:stop");
+    }
+  });
+
+  setOverlayDismissHandler(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("overlay:stop");
+    }
+  });
+}
+
+function getAppIconPath() {
+  return app.isPackaged
+    ? join(process.resourcesPath, "icon.png")
+    : join(__dirname, "../../build/icon.png");
 }
 
 function createWindow() {
@@ -248,18 +408,32 @@ function createWindow() {
     height: 760,
     minWidth: 960,
     minHeight: 640,
-    title: "神奇面试小抄",
+    title: "喵喵面试助手",
     backgroundColor: "#f5f5f5",
+    icon: getAppIconPath(),
     webPreferences: {
-      preload: join(__dirname, "../preload/index.cjs"),
+      preload: preloadPath(),
       sandbox: true,
       contextIsolation: true,
+      backgroundThrottling: false,
     },
   });
+  mainWindow = window;
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: "deny" };
+  });
+
+  window.on("closed", () => {
+    if (mainWindow === window) mainWindow = null;
+    destroyOverlayWindow();
+  });
+
+  window.webContents.once("did-finish-load", () => {
+    if (pendingAuthUrl) {
+      deliverAuthUrl(pendingAuthUrl);
+    }
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -269,14 +443,43 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
-  configureSystemAudioCapture();
-  configurePermissionHandlers();
-  createWindow();
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  registerAuthProtocol();
+  const launchAuthUrl = findAuthUrl(process.argv);
+  if (launchAuthUrl) pendingAuthUrl = launchAuthUrl;
+
+  app.on("second-instance", (_event, argv) => {
+    const url = findAuthUrl(argv);
+    if (url) deliverAuthUrl(url);
+    else restoreMainWindow();
   });
-});
+
+  app.on("open-url", (event, url) => {
+    event.preventDefault();
+    if (isAuthUrl(url)) deliverAuthUrl(url);
+  });
+
+  app.whenReady().then(() => {
+    if (process.platform === "darwin" && !app.isPackaged) {
+      app.dock?.setIcon(getAppIconPath());
+    }
+    configureSystemAudioCapture();
+    configurePermissionHandlers();
+    configureOverlayHandlers();
+    createWindow();
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+        return;
+      }
+      if (isOverlayVisible()) return;
+      restoreMainWindow();
+    });
+  });
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
@@ -285,4 +488,5 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
   void coreAudioCapture?.stop();
   coreAudioCapture = null;
+  destroyOverlayWindow();
 });

@@ -1,12 +1,20 @@
+import { AuthProvider } from "./context/AuthContext";
 import { InterviewProvider, useInterview } from "./context/InterviewContext";
+import { isOverlayWindow } from "./overlayWindow";
 import { HomePage } from "./pages/Home";
-import { InterviewPage } from "./pages/Interview";
+import { InterviewPage, OverlayInterviewPage } from "./pages/Interview";
 
 export function App() {
+  if (isOverlayWindow()) {
+    return <OverlayInterviewPage />;
+  }
+
   return (
-    <InterviewProvider>
-      <AppView />
-    </InterviewProvider>
+    <AuthProvider>
+      <InterviewProvider>
+        <AppView />
+      </InterviewProvider>
+    </AuthProvider>
   );
 }
 

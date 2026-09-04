@@ -8,8 +8,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { chat } from "../services/chat";
+import { chat, isChatAbortError } from "../services/chat";
+import { DEFAULT_CHAT_MODEL } from "../services/config";
+import { deleteResumeFile } from "../services/files";
+import { sendUsageHeartbeat } from "../services/account";
 import { SystemAudioTranscription } from "../transcription";
+import { useAuth } from "./AuthContext";
 
 export type InterviewQaStatus = "loading" | "ready" | "error";
 
@@ -47,7 +51,10 @@ interface InterviewContextValue {
   authorizeMicrophone: () => Promise<void>;
   authorizeSystemCapture: () => Promise<void>;
   setCaptureSource: (source: AudioCaptureSource) => void;
-  startInterview: (options?: { interviewDirection?: string }) => Promise<void>;
+  startInterview: (options?: {
+    interviewDirection?: string;
+    resumeFileId?: string;
+  }) => Promise<void>;
   startInterviewDebug: (options?: { interviewDirection?: string }) => void;
   stopInterview: () => void;
 }
@@ -64,6 +71,7 @@ function permissionKindForMode(
 
 export function InterviewProvider({ children }: { children: ReactNode }) {
   const isMac = window.desktop.platform === "darwin";
+  const { setRemainingSeconds } = useAuth();
   const [captureSource, setCaptureSource] =
     useState<AudioCaptureSource>("system-audio");
   const [capturePermission, setCapturePermission] =
@@ -88,6 +96,7 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
   );
   const transcriptionRef = useRef<SystemAudioTranscription | null>(null);
   const interviewDirectionRef = useRef("");
+  const resumeFileIdRef = useRef("");
   const lastFinalTranscriptRef = useRef("");
   const chatControllersRef = useRef(new Map<string, AbortController>());
   const chatGenerationRef = useRef(0);
@@ -132,14 +141,25 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
         { role: "system", content: systemPrompt },
         { role: "user", content: trimmed },
       ],
-      { signal: controller.signal },
+      {
+        model: DEFAULT_CHAT_MODEL,
+        signal: controller.signal,
+        onDelta: (answer) => {
+          if (chatGenerationRef.current !== generation) return;
+          setQaItems((current) =>
+            current.map((item) =>
+              item.id === id ? { ...item, answer } : item,
+            ),
+          );
+        },
+      },
     )
-      .then((answer) => {
+      .then(({ content }) => {
         if (chatGenerationRef.current !== generation) return;
         setQaItems((current) =>
           current.map((item) =>
             item.id === id
-              ? { ...item, answer, status: "ready" }
+              ? { ...item, answer: content, status: "ready" }
               : item,
           ),
         );
@@ -147,12 +167,11 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
       .catch((error: unknown) => {
         if (
           chatGenerationRef.current !== generation ||
-          (error instanceof DOMException && error.name === "AbortError")
+          isChatAbortError(error)
         ) {
           return;
         }
-        const message =
-          error instanceof Error ? error.message : "获取回答失败";
+        const message = error instanceof Error ? error.message : "获取回答失败";
         setQaItems((current) =>
           current.map((item) =>
             item.id === id
@@ -341,10 +360,11 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
   }, [isAuthorizing, isMac, refreshMicrophonePermission]);
 
   const resetInterviewSession = useCallback(
-    (options?: { interviewDirection?: string }) => {
+    (options?: { interviewDirection?: string; resumeFileId?: string }) => {
       setTranscriptionError(null);
       abortPendingChats();
       interviewDirectionRef.current = options?.interviewDirection?.trim() ?? "";
+      resumeFileIdRef.current = options?.resumeFileId?.trim() ?? "";
       lastFinalTranscriptRef.current = "";
       setFinalTranscripts([]);
       setQaItems([]);
@@ -355,7 +375,10 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
   );
 
   const startInterview = useCallback(
-    async (options?: { interviewDirection?: string }) => {
+    async (options?: {
+      interviewDirection?: string;
+      resumeFileId?: string;
+    }) => {
       const transcription = transcriptionRef.current;
       if (!transcription || isStarting || isStarted) return;
 
@@ -366,7 +389,14 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
           interviewDirection: options?.interviewDirection,
         });
         setIsStarted(true);
+        try {
+          await window.desktop.showOverlay();
+        } catch (error) {
+          console.error("无法打开面试悬浮窗", error);
+        }
       } catch (error) {
+        resumeFileIdRef.current = "";
+        transcription.stop();
         setTranscriptionError(
           error instanceof Error
             ? error.message
@@ -392,6 +422,9 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
       if (isStarted || isStarting) return;
       resetInterviewSession(options);
       setIsStarted(true);
+      void window.desktop.showOverlay().catch((error: unknown) => {
+        console.error("无法打开面试悬浮窗", error);
+      });
     },
     [isStarted, isStarting, resetInterviewSession],
   );
@@ -400,7 +433,72 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     transcriptionRef.current?.stop();
     setIsStarted(false);
     setInterimTranscript("");
+    void window.desktop.hideOverlay().catch((error: unknown) => {
+      console.error("无法关闭面试悬浮窗", error);
+    });
+    const fileId = resumeFileIdRef.current;
+    resumeFileIdRef.current = "";
+    if (!fileId) return;
+    void deleteResumeFile(fileId).catch((error: unknown) => {
+      console.error("删除简历文件失败", error);
+    });
   }, []);
+
+  useEffect(() => {
+    if (!isStarted) return;
+
+    let lastAt = Date.now();
+    let stoppingForQuota = false;
+
+    async function flush() {
+      const now = Date.now();
+      const seconds = Math.round((now - lastAt) / 1000);
+      lastAt = now;
+      if (seconds < 1) return;
+      try {
+        const result = await sendUsageHeartbeat(Math.min(seconds, 90));
+        setRemainingSeconds(result.remaining_seconds);
+        if (result.remaining_seconds <= 0 && !stoppingForQuota) {
+          stoppingForQuota = true;
+          setTranscriptionError("面试时长已用完，请充值后继续");
+          stopInterview();
+        }
+      } catch (error) {
+        console.error("同步面试时长失败", error);
+      }
+    }
+
+    const timer = window.setInterval(() => {
+      void flush();
+    }, 30_000);
+
+    return () => {
+      window.clearInterval(timer);
+      void flush();
+    };
+  }, [isStarted, setRemainingSeconds, stopInterview]);
+
+  useEffect(() => {
+    return window.desktop.onOverlayStop(() => {
+      stopInterview();
+    });
+  }, [stopInterview]);
+
+  useEffect(() => {
+    if (!isStarted) return;
+    window.desktop.publishOverlayState({
+      elapsedSeconds,
+      interimTranscript,
+      qaItems,
+      transcriptionError,
+    });
+  }, [
+    elapsedSeconds,
+    interimTranscript,
+    isStarted,
+    qaItems,
+    transcriptionError,
+  ]);
 
   const systemAudioPermissionsGranted =
     audioCapabilities.mode !== "unsupported" &&

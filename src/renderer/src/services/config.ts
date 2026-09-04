@@ -1,8 +1,8 @@
 export {
-  API_BASE_URL,
-  API_HOST,
-  ASR_WS_URL,
+  ARKASR_WS_URL,
+  FUNASR_WS_URL,
+  CHAT_BASE_URL,
+  DEFAULT_CHAT_MODEL,
+  FILES_URL,
+  SERVICE_URL,
 } from "../../../shared/api";
-
-/** ASR run-task input.context 中保留的历史识别条数 */
-export const ASR_CONTEXT_HISTORY_COUNT = 5;

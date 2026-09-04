@@ -1,6 +1,6 @@
 {
   "name": "amazing-interview-cheatsheet",
-  "productName": "神奇面试小抄",
+  "productName": "interview-cheatsheet",
   "version": "0.1.0",
   "description": "你的 AI 面试辅助桌面应用",
   "main": "./out/main/index.js",
@@ -23,6 +23,7 @@
     "@heroui/styles": "^3.2.4",
     "audiotee": "^0.0.7",
     "lucide-react": "^1.31.0",
+    "openai": "^7.8.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
@@ -54,7 +55,7 @@
   },
   "build": {
     "appId": "com.amazing-interview-cheatsheet",
-    "productName": "神奇面试小抄",
+    "productName": "interview-cheatsheet",
     "asar": true,
     "directories": {
       "output": "dist"
@@ -67,10 +68,16 @@
       {
         "from": "node_modules/audiotee/bin/audiotee",
         "to": "audiotee"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
       }
     ],
+    "icon": "build/icon.png",
     "artifactName": "${name}-${version}-${os}-${arch}.${ext}",
     "mac": {
+      "icon": "build/icon.icns",
       "category": "public.app-category.productivity",
       "extendInfo": {
         "NSAudioCaptureUsageDescription": "用于获取会议软件的系统音频并实时转换为面试文字记录",
@@ -79,7 +86,14 @@
       "target": "dmg"
     },
     "win": {
+      "icon": "build/icon.png",
       "target": "nsis"
-    }
+    },
+    "protocols": [
+      {
+        "name": "interview-cheatsheet",
+        "schemes": ["interview-cheatsheet"]
+      }
+    ]
   }
 }

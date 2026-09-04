@@ -2,26 +2,47 @@ export {
   AsrClient,
   ASR_MODEL,
   ASR_SAMPLE_RATE,
-  buildAsrInputContext,
-  buildAsrSystemPrompt,
+  FUNASR_MODEL,
   checkAsrConnection,
-  DEFAULT_ASR_SYSTEM_PROMPT,
-  type AsrClientCallbacks,
-  type AsrContextContent,
-  type AsrContextMessage,
+  type AsrSessionCallbacks as AsrClientCallbacks,
   type AsrStartOptions,
 } from "./asr";
-export { ASR_CONTEXT_HISTORY_COUNT } from "./config";
 export {
   chat,
   ChatRequestError,
   checkChatConnection,
-  createChatCompletion,
-  type ChatCompletionChoice,
-  type ChatCompletionRequest,
-  type ChatCompletionResponse,
-  type ChatCompletionUsage,
+  isChatAbortError,
   type ChatMessage,
+  type ChatOptions,
+  type ChatResult,
   type ChatRole,
 } from "./chat";
-export { API_BASE_URL, API_HOST, ASR_WS_URL } from "./config";
+export {
+  FileRequestError,
+  deleteResumeFile,
+  uploadResumeFile,
+  waitForFileReady,
+  type UploadedFile,
+} from "./files";
+export {
+  AccountRequestError,
+  claimTrial,
+  createPaymentOrder,
+  fetchMe,
+  fetchOrder,
+  fetchPlans,
+  sendUsageHeartbeat,
+  startWechatLogin,
+  waitWechatLogin,
+  type AccountUser,
+  type PaymentOrder,
+  type RechargePlan,
+} from "./account";
+export {
+  ARKASR_WS_URL,
+  FUNASR_WS_URL,
+  CHAT_BASE_URL,
+  DEFAULT_CHAT_MODEL,
+  FILES_URL,
+  SERVICE_URL,
+} from "./config";

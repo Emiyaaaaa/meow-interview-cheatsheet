@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-export const DEFAULT_APP_NAME = "神奇面试小抄";
+export const DEFAULT_APP_NAME = "喵喵面试助手";
 const STORAGE_KEY = "app-name";
 
 export function getStoredAppName(): string {

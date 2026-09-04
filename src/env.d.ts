@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_API_HOST?: string;
+  readonly VITE_SERVICE_URL?: string;
+  readonly VITE_ASR_PROVIDER?: string;
+  readonly VITE_CHAT_MODEL?: string;
 }
