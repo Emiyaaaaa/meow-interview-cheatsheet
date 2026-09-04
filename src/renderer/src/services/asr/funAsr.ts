@@ -12,6 +12,12 @@ import {
 /** 16 kHz / int16 / 100ms — DashScope 建议分包间隔 */
 const PCM_CHUNK_BYTES = 3_200;
 
+interface DashScopeSentence {
+  heartbeat?: boolean;
+  sentence_end?: boolean;
+  text?: string;
+}
+
 interface DashScopeEvent {
   code?: string;
   error?: string | { code?: string; message?: string };
@@ -26,10 +32,8 @@ interface DashScopeEvent {
   message?: string;
   payload?: {
     output?: {
-      transcription?: {
-        sentence_end?: boolean;
-        text?: string;
-      };
+      sentence?: DashScopeSentence;
+      text?: string;
     };
   };
 }
@@ -314,11 +318,13 @@ export class FunAsrSession implements AsrSession {
   }
 
   private emitTranscript(message: DashScopeEvent) {
-    const transcription = message.payload?.output?.transcription;
-    const text = transcription?.text?.trim();
+    const sentence = message.payload?.output?.sentence;
+    if (sentence?.heartbeat) return;
+
+    const text = firstNonEmpty(sentence?.text, message.payload?.output?.text);
     if (!text) return;
 
-    if (transcription?.sentence_end) {
+    if (sentence?.sentence_end) {
       if (text === this.lastFinalText) return;
       this.lastFinalText = text;
       this.callbacks.onResult(text, true);
