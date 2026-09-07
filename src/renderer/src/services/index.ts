@@ -45,5 +45,6 @@ export {
   CHAT_BASE_URL,
   DEFAULT_CHAT_MODEL,
   FILES_URL,
+  IS_DEBUG,
   SERVICE_URL,
 } from "./config";

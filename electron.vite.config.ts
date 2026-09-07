@@ -16,6 +16,7 @@ export default defineConfig({
     },
   },
   renderer: {
+    envPrefix: ["VITE_", "DEBUG"],
     plugins: [react(), tailwindcss()],
     server: {
       fs: {

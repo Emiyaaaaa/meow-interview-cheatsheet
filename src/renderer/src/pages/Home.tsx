@@ -30,7 +30,6 @@ export function HomePage() {
   const {
     user,
     remainingSeconds,
-    isDebugMode,
     isLoggingIn,
     loginError,
     login,
@@ -126,7 +125,7 @@ export function HomePage() {
           <div className="flex w-full justify-center items-center gap-3">
             <span className="font-mono text-sm text-muted">
               时长剩余{" "}
-              {formatDuration(user || isDebugMode ? remainingSeconds : 0)}
+              {formatDuration(remainingSeconds)}
               <Chip className="ml-2" variant="soft" color="warning">
                 <CirclePause className="size-3" />
                 <Chip.Label>{isStarted ? "面试中" : "已暂停"}</Chip.Label>

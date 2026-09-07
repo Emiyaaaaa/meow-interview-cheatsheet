@@ -34,6 +34,7 @@ import { useInterview } from "../context/InterviewContext";
 import {
   checkAsrConnection,
   checkChatConnection,
+  IS_DEBUG,
   uploadResumeFile,
   waitForFileReady,
 } from "../services";
@@ -226,8 +227,6 @@ export function InterviewPreparePage() {
   const [asrStep, setAsrStep] = useState<PrepStepState>("idle");
   const [asrStatusText, setAsrStatusText] = useState("");
   const [resumeFileId, setResumeFileId] = useState("");
-  const [debug2State, setDebug2State] = useState<ApiCheckState>("idle");
-  const [debug2Error, setDebug2Error] = useState("");
 
   async function handleCheckAsr() {
     setAsrCheckState("checking");
@@ -239,21 +238,6 @@ export function InterviewPreparePage() {
       setAsrCheckState("error");
       setAsrCheckError(
         error instanceof Error ? error.message : "语音识别服务检测失败",
-      );
-      console.error(error);
-    }
-  }
-
-  async function handleDebug2() {
-    setDebug2State("checking");
-    setDebug2Error("");
-    try {
-      await checkAsrConnection();
-      setDebug2State("ok");
-    } catch (error) {
-      setDebug2State("error");
-      setDebug2Error(
-        error instanceof Error ? error.message : "渲染层 WebSocket 连接失败",
       );
       console.error(error);
     }
@@ -633,32 +617,20 @@ export function InterviewPreparePage() {
           <Play size="sm" />
           开始面试
         </Button>
-        <Button
-          className="mt-2 h-8 min-w-52 text-xs text-muted"
-          isDisabled={!user}
-          size="sm"
-          variant="tertiary"
-          onPress={() =>
-            startInterviewDebug({
-              interviewDirection: interviewDirection.trim() || undefined,
-            })
-          }
-        >
-          Debug
-        </Button>
-        <Button
-          className="mt-2 h-8 min-w-52 text-xs text-muted"
-          isPending={debug2State === "checking"}
-          size="sm"
-          variant="tertiary"
-          onPress={() => void handleDebug2()}
-        >
-          Debug2
-        </Button>
-        {debug2State === "ok" ? (
-          <p className="mt-2 text-xs text-emerald-600">渲染层 WS 已连接</p>
-        ) : debug2State === "error" ? (
-          <p className="mt-2 text-xs text-red-600">{debug2Error}</p>
+        {IS_DEBUG ? (
+          <Button
+            className="mt-2 h-8 min-w-52 text-xs text-muted"
+            isDisabled={!user}
+            size="sm"
+            variant="tertiary"
+            onPress={() =>
+              startInterviewDebug({
+                interviewDirection: interviewDirection.trim() || undefined,
+              })
+            }
+          >
+            打开面试面板
+          </Button>
         ) : null}
         {transcriptionError ? (
           <p className="mt-3 text-sm text-red-600">{transcriptionError}</p>
