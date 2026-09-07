@@ -1,5 +1,5 @@
 {
-  "name": "amazing-interview-cheatsheet",
+  "name": "meow-interview-cheatsheet",
   "productName": "interview-cheatsheet",
   "version": "0.1.0",
   "description": "你的 AI 面试辅助桌面应用",
@@ -54,7 +54,7 @@
     "node": ">=22.12.0"
   },
   "build": {
-    "appId": "com.amazing-interview-cheatsheet",
+    "appId": "com.meow-interview-cheatsheet",
     "productName": "interview-cheatsheet",
     "asar": true,
     "directories": {
