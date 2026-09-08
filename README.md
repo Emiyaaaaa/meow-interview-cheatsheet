@@ -1,12 +1,10 @@
-![喵喵面试助手](assets/logo.png)
-
-# 喵喵面试助手
+# <img src="assets/logo.png" alt="喵喵面试助手" width="32" height="32"> 喵喵面试助手
 
 面试时把提问转成文字，再结合简历给出回答要点。支持 macOS 与 Windows。
 
-**本项目仅供学习使用，禁止商业使用。**
+https://interviewcheat.cn
 
-官网：https://interviewcheat.cn
+## 下载
 
 [下载安装包](https://github.com/Emiyaaaaa/meow-interview-cheatsheet/releases/latest)
 
