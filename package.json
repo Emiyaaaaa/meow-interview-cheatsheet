@@ -1,7 +1,7 @@
 {
   "name": "meow-interview-cheatsheet",
   "productName": "interview-cheatsheet",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "你的 AI 面试辅助桌面应用",
   "main": "./out/main/index.js",
   "type": "module",
