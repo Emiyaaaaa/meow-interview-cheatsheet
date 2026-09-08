@@ -1,0 +1,58 @@
+name: Tag on version bump
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - package.json
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  tag:
+    name: Create tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Create tag and trigger build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v$VERSION"
+
+          OLD_VERSION=""
+          if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            OLD_VERSION=$(git show HEAD^:package.json | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>console.log(JSON.parse(s).version))")
+          fi
+
+          echo "Previous version: ${OLD_VERSION:-<none>}"
+          echo "Current version: $VERSION"
+
+          if [[ "$OLD_VERSION" == "$VERSION" ]]; then
+            echo "Version unchanged, skip tagging"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q "refs/tags/${TAG}$"; then
+            echo "Tag $TAG already exists"
+          else
+            git tag "$TAG"
+            git push origin "$TAG"
+            echo "Pushed tag $TAG"
+          fi
+
+          # GITHUB_TOKEN 推送的 tag 不会触发其它 workflow，需要显式 dispatch
+          gh workflow run build-desktop.yml --ref "$TAG"
+          echo "Triggered build-desktop.yml on $TAG"

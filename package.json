@@ -70,14 +70,14 @@
         "to": "audiotee"
       },
       {
-        "from": "build/icon.png",
+        "from": "assets/icon.png",
         "to": "icon.png"
       }
     ],
-    "icon": "build/icon.png",
+    "icon": "assets/icon.png",
     "artifactName": "${name}-${version}-${os}-${arch}.${ext}",
     "mac": {
-      "icon": "build/icon.icns",
+      "icon": "assets/icon.icns",
       "category": "public.app-category.productivity",
       "extendInfo": {
         "NSAudioCaptureUsageDescription": "用于获取会议软件的系统音频并实时转换为面试文字记录",
@@ -86,7 +86,7 @@
       "target": "dmg"
     },
     "win": {
-      "icon": "build/icon.png",
+      "icon": "assets/icon.png",
       "target": "nsis"
     },
     "protocols": [

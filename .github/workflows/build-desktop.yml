@@ -5,73 +5,38 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - main
 
 permissions:
   contents: write
 
 jobs:
-  detect:
-    name: Detect version
+  check:
+    name: Check version
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.detect.outputs.version }}
-      should_build: ${{ steps.detect.outputs.should_build }}
-      should_release: ${{ steps.detect.outputs.should_release }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
 
-      - name: Detect version change
-        id: detect
+      - name: Verify tag matches package.json
         run: |
           set -euo pipefail
           VERSION=$(node -p "require('./package.json').version")
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "package.json version: $VERSION"
 
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            TAG_VERSION="${GITHUB_REF_NAME#v}"
-            if [[ "$TAG_VERSION" != "$VERSION" ]]; then
-              echo "Tag $GITHUB_REF_NAME does not match package.json version $VERSION"
-              exit 1
-            fi
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-            echo "should_release=true" >> "$GITHUB_OUTPUT"
-            echo "Triggered by tag $GITHUB_REF_NAME"
+          if [[ "${GITHUB_REF}" != refs/tags/v* ]]; then
+            echo "Not a tag ref ($GITHUB_REF), skip version check"
             exit 0
           fi
 
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-            echo "Manual dispatch: build only"
-            exit 0
-          fi
-
-          OLD_VERSION=""
-          if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
-            OLD_VERSION=$(git show HEAD^:package.json | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>console.log(JSON.parse(s).version))")
-          fi
-          echo "Previous version: ${OLD_VERSION:-<none>}"
-
-          if [[ "$OLD_VERSION" != "$VERSION" ]]; then
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-            echo "should_release=true" >> "$GITHUB_OUTPUT"
-            echo "Version changed ($OLD_VERSION -> $VERSION), will tag and release"
-          else
-            echo "should_build=false" >> "$GITHUB_OUTPUT"
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-            echo "Version unchanged, skip build"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "$TAG_VERSION" != "$VERSION" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $VERSION"
+            exit 1
           fi
 
   build-macos:
     name: Build macOS (${{ matrix.arch }})
-    needs: detect
-    if: needs.detect.outputs.should_build == 'true'
+    needs: check
     runs-on: macos-14
     strategy:
       fail-fast: false
@@ -107,8 +72,7 @@ jobs:
 
   build-windows:
     name: Build Windows (x64)
-    needs: detect
-    if: needs.detect.outputs.should_build == 'true'
+    needs: check
     runs-on: windows-latest
 
     steps:
@@ -136,8 +100,8 @@ jobs:
 
   release:
     name: GitHub Release
-    needs: [detect, build-macos, build-windows]
-    if: needs.detect.outputs.should_release == 'true'
+    needs: [check, build-macos, build-windows]
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -148,11 +112,11 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Create tag and GitHub Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.detect.outputs.version }}
-          name: v${{ needs.detect.outputs.version }}
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
           target_commitish: ${{ github.sha }}
           files: artifacts/*
           generate_release_notes: true

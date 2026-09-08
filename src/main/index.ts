@@ -399,7 +399,7 @@ function configureOverlayHandlers() {
 function getAppIconPath() {
   return app.isPackaged
     ? join(process.resourcesPath, "icon.png")
-    : join(__dirname, "../../build/icon.png");
+    : join(__dirname, "../../assets/icon.png");
 }
 
 function createWindow() {
