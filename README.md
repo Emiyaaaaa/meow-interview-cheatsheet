@@ -8,6 +8,16 @@ https://interviewcheat.cn
 
 [下载安装包](https://github.com/Emiyaaaaa/meow-interview-cheatsheet/releases/latest)
 
+### macOS 提示「已损坏，无法打开」
+
+当前安装包未经过 Apple 签名。系统可能拦截并提示将应用移到废纸篓。把 `喵喵面试助手.app` 拖到「应用程序」后，在「终端」执行：
+
+```bash
+xattr -cr /Applications/喵喵面试助手.app
+```
+
+然后再打开即可。
+
 ## 功能
 
 - 采集系统音频或麦克风，实时转写面试官的话。

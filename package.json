@@ -1,6 +1,6 @@
 {
   "name": "meow-interview-cheatsheet",
-  "productName": "interview-cheatsheet",
+  "productName": "喵喵面试助手",
   "version": "0.1.2",
   "description": "你的 AI 面试辅助桌面应用",
   "main": "./out/main/index.js",
@@ -55,7 +55,7 @@
   },
   "build": {
     "appId": "com.meow-interview-cheatsheet",
-    "productName": "interview-cheatsheet",
+    "productName": "喵喵面试助手",
     "asar": true,
     "directories": {
       "output": "dist"
