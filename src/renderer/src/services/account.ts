@@ -153,6 +153,36 @@ export async function fetchOrder(orderId: string) {
   return result.order;
 }
 
+export interface AccountOrder {
+  id: string;
+  out_trade_no: string;
+  description: string;
+  amount_total: number;
+  minutes: number;
+  status: string;
+  created_at: string;
+  paid_at: string | null;
+}
+
+export async function fetchOrders() {
+  const result = await request<{ orders: AccountOrder[] }>("/orders");
+  return result.orders;
+}
+
+export async function applyRefund(orderId: string, reason: string, contact: string) {
+  const result = await request<{ order: AccountOrder }>(
+    `/orders/${encodeURIComponent(orderId)}/refund`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        reason,
+        contact: contact.trim() || undefined,
+      }),
+    },
+  );
+  return result.order;
+}
+
 export async function sendUsageHeartbeat(seconds: number) {
   return request<{ deducted_seconds: number; remaining_seconds: number }>(
     "/usage/heartbeat",

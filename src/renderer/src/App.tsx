@@ -1,3 +1,4 @@
+import { Toast } from "@heroui/react";
 import { AuthProvider } from "./context/AuthContext";
 import { InterviewProvider, useInterview } from "./context/InterviewContext";
 import { isOverlayWindow } from "./overlayWindow";
@@ -12,6 +13,7 @@ export function App() {
   return (
     <AuthProvider>
       <InterviewProvider>
+        <Toast.Provider placement="top" />
         <AppView />
       </InterviewProvider>
     </AuthProvider>

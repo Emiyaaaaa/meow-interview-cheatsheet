@@ -142,11 +142,50 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
+
+      - name: Generate release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.detect.outputs.version }}
+        run: |
+          set -euo pipefail
+          CURRENT_TAG="v${VERSION}"
+          PREV_TAG=$(gh release list --exclude-drafts --limit 50 --json tagName \
+            --jq "[.[] | select(.tagName != \"${CURRENT_TAG}\")][0].tagName // empty")
+
+          {
+            echo "## What's Changed"
+            echo
+            if [[ -n "${PREV_TAG}" ]]; then
+              git fetch origin "refs/tags/${PREV_TAG}:refs/tags/${PREV_TAG}" --force >/dev/null 2>&1 || true
+              COMMITS=$(git log --pretty=format:'- %s (`%h`)' --no-merges "${PREV_TAG}..HEAD")
+              if [[ -n "${COMMITS}" ]]; then
+                echo "${COMMITS}"
+              else
+                echo "- No commits since ${PREV_TAG}"
+              fi
+              echo
+              echo
+              echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...${CURRENT_TAG}"
+            else
+              git log --pretty=format:'- %s (`%h`)' --no-merges
+              echo
+            fi
+          } > release_notes.md
+
+          echo "Generated notes from ${PREV_TAG:-<initial commit>} to ${CURRENT_TAG}"
+          cat release_notes.md
 
       - name: Create tag and GitHub Release
         uses: softprops/action-gh-release@v2
@@ -155,7 +194,7 @@ jobs:
           name: v${{ needs.detect.outputs.version }}
           target_commitish: ${{ github.sha }}
           files: artifacts/*
-          generate_release_notes: true
+          body_path: release_notes.md
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

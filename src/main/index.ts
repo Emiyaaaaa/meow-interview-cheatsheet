@@ -396,6 +396,17 @@ function configureOverlayHandlers() {
   });
 }
 
+const UA_APP_NAME = "interview-cheatsheet";
+
+function applyAsciiUserAgent() {
+  const version = app.getVersion();
+  const next = session.defaultSession
+    .getUserAgent()
+    .replace(/\s\S+\/[\d.]+(?=\sChrome\/)/, ` ${UA_APP_NAME}/${version}`);
+  app.userAgentFallback = next;
+  session.defaultSession.setUserAgent(next);
+}
+
 function getAppIconPath() {
   return app.isPackaged
     ? join(process.resourcesPath, "icon.png")
@@ -463,6 +474,7 @@ if (!gotSingleInstanceLock) {
   });
 
   app.whenReady().then(() => {
+    applyAsciiUserAgent();
     if (process.platform === "darwin" && !app.isPackaged) {
       app.dock?.setIcon(getAppIconPath());
     }
