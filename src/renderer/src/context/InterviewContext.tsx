@@ -97,6 +97,8 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
   const transcriptionRef = useRef<SystemAudioTranscription | null>(null);
   const interviewDirectionRef = useRef("");
   const resumeFileIdRef = useRef("");
+  const previousResponseIdRef = useRef("");
+  const answerChainRef = useRef(Promise.resolve());
   const lastFinalTranscriptRef = useRef("");
   const chatControllersRef = useRef(new Map<string, AbortController>());
   const chatGenerationRef = useRef(0);
@@ -128,34 +130,46 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
       },
     ]);
 
-    const direction = interviewDirectionRef.current;
-    const systemPrompt = [
-      "你是候选人的面试答题助手。根据面试官的问题给出可直接口述的回答，重点清晰、简洁专业，不要复述问题。",
-      direction ? `面试方向：${direction}。` : "",
-    ]
-      .filter(Boolean)
-      .join("");
+    const run = async () => {
+      if (chatGenerationRef.current !== generation) return;
 
-    void chat(
-      [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: trimmed },
-      ],
-      {
-        model: DEFAULT_CHAT_MODEL,
-        signal: controller.signal,
-        onDelta: (answer) => {
-          if (chatGenerationRef.current !== generation) return;
-          setQaItems((current) =>
-            current.map((item) =>
-              item.id === id ? { ...item, answer } : item,
-            ),
-          );
-        },
-      },
-    )
-      .then(({ content }) => {
+      const previousResponseId = previousResponseIdRef.current || undefined;
+      const resumeFileId = resumeFileIdRef.current || undefined;
+      const direction = interviewDirectionRef.current;
+      const systemPrompt = [
+        "你是候选人的面试答题助手。根据面试官的问题给出可直接口述的回答，重点清晰、简洁专业，不要复述问题。",
+        direction ? `面试方向：${direction}。` : "",
+        resumeFileId
+          ? "已通过文件提供候选人简历，请结合简历中的经历与技能作答。"
+          : "",
+      ]
+        .filter(Boolean)
+        .join("");
+
+      try {
+        const { content, responseId } = await chat(
+          [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: trimmed },
+          ],
+          {
+            fileId: previousResponseId ? undefined : resumeFileId,
+            model: DEFAULT_CHAT_MODEL,
+            previousResponseId,
+            signal: controller.signal,
+            store: true,
+            onDelta: (answer) => {
+              if (chatGenerationRef.current !== generation) return;
+              setQaItems((current) =>
+                current.map((item) =>
+                  item.id === id ? { ...item, answer } : item,
+                ),
+              );
+            },
+          },
+        );
         if (chatGenerationRef.current !== generation) return;
+        if (responseId) previousResponseIdRef.current = responseId;
         setQaItems((current) =>
           current.map((item) =>
             item.id === id
@@ -163,8 +177,7 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
               : item,
           ),
         );
-      })
-      .catch((error: unknown) => {
+      } catch (error: unknown) {
         if (
           chatGenerationRef.current !== generation ||
           isChatAbortError(error)
@@ -179,10 +192,17 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
               : item,
           ),
         );
-      })
-      .finally(() => {
+      } finally {
         chatControllersRef.current.delete(id);
-      });
+      }
+    };
+
+    // 串行请求，确保上一轮 completed 后才能传 previous_response_id。
+    const next = answerChainRef.current.then(run, run);
+    answerChainRef.current = next.then(
+      () => undefined,
+      () => undefined,
+    );
   }, []);
 
   useEffect(() => {
@@ -365,6 +385,8 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
       abortPendingChats();
       interviewDirectionRef.current = options?.interviewDirection?.trim() ?? "";
       resumeFileIdRef.current = options?.resumeFileId?.trim() ?? "";
+      previousResponseIdRef.current = "";
+      answerChainRef.current = Promise.resolve();
       lastFinalTranscriptRef.current = "";
       setFinalTranscripts([]);
       setQaItems([]);
@@ -431,18 +453,20 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
 
   const stopInterview = useCallback(() => {
     transcriptionRef.current?.stop();
+    abortPendingChats();
     setIsStarted(false);
     setInterimTranscript("");
     void window.desktop.hideOverlay().catch((error: unknown) => {
       console.error("无法关闭面试悬浮窗", error);
     });
+    previousResponseIdRef.current = "";
     const fileId = resumeFileIdRef.current;
     resumeFileIdRef.current = "";
     if (!fileId) return;
     void deleteResumeFile(fileId).catch((error: unknown) => {
       console.error("删除简历文件失败", error);
     });
-  }, []);
+  }, [abortPendingChats]);
 
   useEffect(() => {
     if (!isStarted) return;

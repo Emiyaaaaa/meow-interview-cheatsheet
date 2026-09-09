@@ -1,5 +1,9 @@
 import OpenAI, { APIError, APIUserAbortError } from "openai";
-import type { ResponseCreateParams } from "openai/resources/responses/responses";
+import type {
+  EasyInputMessage,
+  ResponseCreateParams,
+  ResponseInput,
+} from "openai/resources/responses/responses";
 import { getSessionToken } from "../../../shared/session";
 import { CHAT_BASE_URL, DEFAULT_CHAT_MODEL } from "./config";
 
@@ -13,6 +17,7 @@ export interface ChatMessage {
 }
 
 export interface ChatOptions {
+  fileId?: string;
   model: string;
   onDelta?: (text: string) => void;
   previousResponseId?: string;
@@ -70,6 +75,7 @@ export async function checkChatConnection(model = DEFAULT_CHAT_MODEL) {
     await chat([{ role: "user", content: "hi" }], {
       model,
       signal: controller.signal,
+      store: false,
       stream: false,
     });
   } catch (error) {
@@ -83,17 +89,21 @@ export async function checkChatConnection(model = DEFAULT_CHAT_MODEL) {
 }
 
 function buildParams(messages: ChatMessage[], options: ChatOptions) {
-  const { input, instructions } = toResponseInput(messages);
+  const { input, instructions } = toResponseInput(messages, options.fileId);
   // 交叉 Record 是为了容纳 thinking 这类各家自定义字段。
   const params: Omit<ResponseCreateParams, "stream"> & Record<string, unknown> =
     {
       input,
       instructions,
       model: options.model,
-      previous_response_id: options.previousResponseId,
-      // 续接会话要求上一轮被服务端保存下来。
-      store: options.store ?? Boolean(options.previousResponseId),
+      // 续接会话要求每一轮都被服务端保存，否则无法传 previous_response_id。
+      store: options.store ?? true,
     };
+
+  const previousResponseId = options.previousResponseId?.trim();
+  if (previousResponseId) {
+    params.previous_response_id = previousResponseId;
+  }
 
   if (options.model.toLowerCase().startsWith("doubao")) {
     params.thinking = { type: "disabled" };
@@ -169,23 +179,51 @@ async function streamResponse(
   return { content: content.trim(), responseId };
 }
 
-function toResponseInput(messages: ChatMessage[]) {
+function toResponseInput(
+  messages: ChatMessage[],
+  fileId?: string,
+): { input: string | ResponseInput; instructions?: string } {
   const instructions = messages
     .filter((message) => message.role === "system")
     .map((message) => message.content.trim())
     .filter(Boolean)
     .join("\n");
 
-  const input = messages
+  const attachedFileId = fileId?.trim();
+  let fileAttached = false;
+  const input: EasyInputMessage[] = messages
     .filter((message) => message.role !== "system")
-    .map((message) => ({
-      content: message.content,
-      role: message.role,
-    }));
+    .map((message) => {
+      if (message.role === "user" && attachedFileId && !fileAttached) {
+        fileAttached = true;
+        return {
+          role: "user" as const,
+          content: [
+            { type: "input_file" as const, file_id: attachedFileId },
+            { type: "input_text" as const, text: message.content },
+          ],
+        };
+      }
+      return {
+        content: message.content,
+        role: message.role,
+      };
+    });
+
+  if (
+    !attachedFileId &&
+    input.length === 1 &&
+    input[0]?.role === "user" &&
+    typeof input[0].content === "string"
+  ) {
+    return {
+      input: input[0].content,
+      instructions: instructions || undefined,
+    };
+  }
 
   return {
-    input:
-      input.length === 1 && input[0].role === "user" ? input[0].content : input,
+    input,
     instructions: instructions || undefined,
   };
 }

@@ -20,7 +20,7 @@ export const ARKASR_WS_URL = `${AI_SERVICE_WS_URL}/ark-openspeech/api/v3/sauc/bi
 
 export const FUNASR_WS_URL = `${AI_SERVICE_WS_URL}/qwen-asr/api-ws/v1/inference`;
 
-export const FILES_URL = `${AI_SERVICE_URL}/api/v3/files`;
+export const FILES_URL = `${AI_SERVICE_URL}/ark/api/v3/files`;
 
 export const DEFAULT_CHAT_MODEL =
   import.meta.env.VITE_CHAT_MODEL?.trim() || "doubao-seed-2-1-pro-260628";
