@@ -1,15 +1,16 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { OverlayInterviewState } from "../shared/overlay";
+import type { PermissionKind } from "../shared/permissions";
 
 contextBridge.exposeInMainWorld("desktop", {
   platform: process.platform,
   getSystemAudioCapabilities: () =>
     ipcRenderer.invoke("system-audio:get-capabilities"),
-  getPermissionStatus: (kind: "microphone" | "screen") =>
+  getPermissionStatus: (kind: PermissionKind) =>
     ipcRenderer.invoke("permissions:get-status", kind),
-  requestPermission: (kind: "microphone" | "screen") =>
+  requestPermission: (kind: PermissionKind) =>
     ipcRenderer.invoke("permissions:request", kind),
-  openPermissionSettings: (kind: "microphone" | "screen") =>
+  openPermissionSettings: (kind: PermissionKind) =>
     ipcRenderer.invoke("permissions:open-settings", kind),
   startCoreAudioCapture: () =>
     ipcRenderer.invoke("system-audio:start-core-audio"),

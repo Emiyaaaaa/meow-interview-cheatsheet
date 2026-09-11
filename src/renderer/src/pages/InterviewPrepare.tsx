@@ -198,7 +198,8 @@ export function InterviewPreparePage() {
     authorizeMicrophone,
     authorizeSystemCapture,
     captureSource,
-    isAuthorizing,
+    isAuthorizingMicrophone,
+    isAuthorizingSystemCapture,
     isLegacyMacCapture,
     isMac,
     isMacAudioOnly,
@@ -396,7 +397,7 @@ export function InterviewPreparePage() {
               <PermissionStatus
                 granted={microphonePermissionsGranted}
                 grantedLabel={isMac ? "已授权" : "无需授权"}
-                isPending={isAuthorizing}
+                isPending={isAuthorizingMicrophone}
                 needsSettings={needsMicrophoneSettings}
                 onAuthorize={() => void authorizeMicrophone()}
               />
@@ -424,7 +425,7 @@ export function InterviewPreparePage() {
                   }
                 >
                   {isMacAudioOnly
-                    ? `macOS ${audioCapabilities.macOSVersion} 仅采集系统音频输出，不读取屏幕`
+                    ? `macOS ${audioCapabilities.macOSVersion} 通过「仅系统音频录制」采集电脑播放的声音，不会读取屏幕。请在系统设置 → 隐私与安全性 → 屏幕与系统音频录制 页面底部的「仅系统音频录制」中允许本应用，不要授权麦克风。`
                     : isLegacyMacCapture
                       ? `macOS ${audioCapabilities.macOSVersion} 只能通过屏幕录制权限获取系统音频；应用不会保存或上传屏幕画面`
                       : isUnsupported
@@ -436,7 +437,7 @@ export function InterviewPreparePage() {
               <PermissionStatus
                 granted={systemAudioPermissionsGranted}
                 grantedLabel={isMac ? "已授权" : "无需授权"}
-                isPending={isAuthorizing}
+                isPending={isAuthorizingSystemCapture}
                 isUnsupported={isUnsupported}
                 needsSettings={needsSystemSettings}
                 onAuthorize={() => void authorizeSystemCapture()}

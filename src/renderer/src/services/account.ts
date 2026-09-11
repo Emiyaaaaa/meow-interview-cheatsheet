@@ -162,11 +162,24 @@ export interface AccountOrder {
   status: string;
   created_at: string;
   paid_at: string | null;
+  order_type?: "payment" | "activation_code";
+  activation_code?: string | null;
 }
 
 export async function fetchOrders() {
   const result = await request<{ orders: AccountOrder[] }>("/orders");
   return result.orders;
+}
+
+export async function redeemActivationCode(code: string) {
+  const result = await request<{ order: AccountOrder; user: AccountUser }>(
+    "/activation-codes/redeem",
+    {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    },
+  );
+  return result;
 }
 
 export async function applyRefund(orderId: string, reason: string, contact: string) {

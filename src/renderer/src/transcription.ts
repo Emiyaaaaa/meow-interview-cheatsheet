@@ -67,6 +67,7 @@ export class SystemAudioTranscription {
       }
 
       if (captureMode === "core-audio") {
+        // AudioTee 走 Core Audio Tap，对应系统「仅系统音频录制」权限，不是麦克风。
         this.usingCoreAudio = true;
         this.unsubscribeCoreAudioError = window.desktop.onSystemAudioError(
           (message) => this.callbacks.onError(message),

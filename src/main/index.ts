@@ -14,6 +14,11 @@ import { readFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { FILES_URL } from "../shared/api";
 import type { OverlayInterviewState } from "../shared/overlay";
+import type { PermissionKind } from "../shared/permissions";
+import {
+  getAudioCapturePermissionStatus,
+  isAudioCaptureDecided,
+} from "./audio-capture-permission";
 import {
   configureCaptureExclusion,
   destroyOverlayWindow,
@@ -30,13 +35,13 @@ configureCaptureExclusion(app);
 type SystemAudioCaptureMode =
   "core-audio" | "screen-capture" | "loopback" | "unsupported";
 
-type PermissionKind = "microphone" | "screen";
-
 const PERMISSION_SETTINGS_URL: Record<PermissionKind, string> = {
   microphone:
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
   screen:
     "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+  "audio-capture":
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture",
 };
 
 const AUTH_PROTOCOL = "interview-cheatsheet";
@@ -147,6 +152,83 @@ function getSystemAudioCapabilities(): {
   return { macOSVersion, mode: "unsupported" };
 }
 
+function getAudioteeBinaryPath() {
+  return app.isPackaged ? join(process.resourcesPath, "audiotee") : undefined;
+}
+
+function createAudioTee() {
+  return new AudioTee({
+    binaryPath: getAudioteeBinaryPath(),
+    chunkDurationMs: 100,
+    sampleRate: 16_000,
+  });
+}
+
+function waitForAudioCaptureDecision(timeoutMs: number, isDone: () => boolean) {
+  return new Promise<void>((resolve) => {
+    if (isDone()) {
+      resolve();
+      return;
+    }
+
+    const poll = setInterval(() => {
+      if (!isDone()) return;
+      clearInterval(poll);
+      clearTimeout(timer);
+      resolve();
+    }, 300);
+    const timer = setTimeout(() => {
+      clearInterval(poll);
+      resolve();
+    }, timeoutMs);
+  });
+}
+
+async function requestAudioCapturePermission(): Promise<
+  ReturnType<typeof getAudioCapturePermissionStatus>
+> {
+  const current = getAudioCapturePermissionStatus();
+  if (isAudioCaptureDecided(current)) return current;
+  if (coreAudioCapture?.isActive()) return "granted";
+
+  const capture = createAudioTee();
+  let finished = false;
+  const markFinished = () => {
+    finished = true;
+  };
+
+  capture.once("start", markFinished);
+  capture.once("error", markFinished);
+
+  try {
+    await capture.start();
+    await waitForAudioCaptureDecision(
+      120_000,
+      () => finished || isAudioCaptureDecided(getAudioCapturePermissionStatus()),
+    );
+    if (!isAudioCaptureDecided(getAudioCapturePermissionStatus())) {
+      await waitForAudioCaptureDecision(2_000, () =>
+        isAudioCaptureDecided(getAudioCapturePermissionStatus()),
+      );
+    }
+  } catch {
+    // 以 TCC 状态为准，启动失败也走同一套查询。
+  } finally {
+    capture.removeAllListeners();
+    try {
+      await capture.stop();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const status = getAudioCapturePermissionStatus();
+  if (isAudioCaptureDecided(status)) return status;
+  // TCC SPI 不可用时，只能以 Core Audio tap 是否真正启动作为回退。
+  if (status === "unknown" && finished) return "granted";
+  return status;
+}
+
 function configureSystemAudioCapture() {
   session.defaultSession.setDisplayMediaRequestHandler(
     async (_request, callback) => {
@@ -176,6 +258,7 @@ function configurePermissionHandlers() {
 
   ipcMain.handle("permissions:get-status", (_event, kind: PermissionKind) => {
     if (process.platform !== "darwin") return "granted";
+    if (kind === "audio-capture") return getAudioCapturePermissionStatus();
     return systemPreferences.getMediaAccessStatus(kind);
   });
 
@@ -183,6 +266,9 @@ function configurePermissionHandlers() {
     "permissions:request",
     async (_event, kind: PermissionKind) => {
       if (process.platform !== "darwin") return "granted";
+      if (kind === "audio-capture") {
+        return requestAudioCapturePermission();
+      }
       // 屏幕录制没有请求 API，只能由实际的采集调用触发系统弹窗。
       if (kind === "microphone") {
         await systemPreferences.askForMediaAccess("microphone");
@@ -205,15 +291,10 @@ function configurePermissionHandlers() {
     }
     if (coreAudioCapture?.isActive()) return;
 
-    const capture = new AudioTee({
-      binaryPath: app.isPackaged
-        ? join(process.resourcesPath, "audiotee")
-        : undefined,
-      chunkDurationMs: 100,
-      sampleRate: 16_000,
-    });
+    const capture = createAudioTee();
     coreAudioCapture = capture;
 
+    // AudioTee / Core Audio Tap 需要「仅系统音频录制」权限（NSAudioCapture）。
     // 系统音频在主进程采集，PCM 送到渲染进程再走 WebSocket。
     capture.on("data", (chunk: AudioChunk) => {
       if (event.sender.isDestroyed()) return;

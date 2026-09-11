@@ -26,6 +26,7 @@ import {
   fetchOrder,
   fetchOrders,
   fetchPlans,
+  redeemActivationCode,
   type AccountOrder,
   type RechargePlan,
 } from "../services/account";
@@ -50,17 +51,32 @@ function formatAmount(fen: number) {
   return `¥${fenToYuan(fen).toFixed(2)}`;
 }
 
-function orderStatusLabel(status: string) {
-  if (status === "paid") return "已支付";
-  if (status === "refund_pending") return "退款审核中";
-  if (status === "refunded") return "已退款";
-  return status;
+function formatCodeInput(value: string) {
+  const raw = value
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 12);
+  const parts = [raw.slice(0, 4), raw.slice(4, 8), raw.slice(8, 12)].filter(Boolean);
+  return parts.join("-");
 }
 
-function orderStatusColor(status: string) {
-  if (status === "paid") return "success" as const;
-  if (status === "refund_pending") return "warning" as const;
-  if (status === "refunded") return "default" as const;
+function orderTypeOf(order: AccountOrder) {
+  return order.order_type === "activation_code" ? "activation_code" : "payment";
+}
+
+function orderStatusLabel(order: AccountOrder) {
+  if (orderTypeOf(order) === "activation_code" && order.status === "paid") return "已兑换";
+  if (order.status === "paid") return "已支付";
+  if (order.status === "refund_pending") return "退款审核中";
+  if (order.status === "refunded") return "已退款";
+  return order.status;
+}
+
+function orderStatusColor(order: AccountOrder) {
+  if (orderTypeOf(order) === "activation_code" && order.status === "paid") return "success" as const;
+  if (order.status === "paid") return "success" as const;
+  if (order.status === "refund_pending") return "warning" as const;
+  if (order.status === "refunded") return "default" as const;
   return "default" as const;
 }
 
@@ -79,12 +95,16 @@ export function RechargePage() {
   const [refundContact, setRefundContact] = useState("");
   const [refundError, setRefundError] = useState("");
   const [refundSubmitting, setRefundSubmitting] = useState(false);
+  const [activationCode, setActivationCode] = useState("");
+  const [redeeming, setRedeeming] = useState(false);
   const refundModal = useOverlayState();
   const activeRef = useRef(true);
   const pollTokenRef = useRef(0);
 
   const historyOrders = orders.filter((order) => HISTORY_STATUSES.has(order.status));
-  const refundableOrders = orders.filter((order) => order.status === "paid");
+  const refundableOrders = orders.filter(
+    (order) => order.status === "paid" && orderTypeOf(order) !== "activation_code",
+  );
 
   useEffect(() => {
     activeRef.current = true;
@@ -154,6 +174,34 @@ export function RechargePage() {
     setRefundContact("");
     setRefundError("");
     refundModal.open();
+  }
+
+  async function handleRedeem() {
+    if (redeeming) return;
+    if (!user) {
+      toast("请先登录");
+      return;
+    }
+    const code = activationCode.trim();
+    if (!code) {
+      setActionError("请输入激活码");
+      return;
+    }
+    setRedeeming(true);
+    setActionError("");
+    setStatusText("");
+    try {
+      const result = await redeemActivationCode(code);
+      setUser(result.user);
+      setActivationCode("");
+      setStatusText("激活成功，时长已到账");
+      toast("激活码兑换成功");
+      await reloadOrders();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "兑换激活码失败");
+    } finally {
+      setRedeeming(false);
+    }
   }
 
   async function handleRefund() {
@@ -336,6 +384,40 @@ export function RechargePage() {
         })}
       </div>
 
+      <Card className="mt-10 max-w-xl rounded-lg border border-black/6 p-4">
+        <div className="flex flex-col gap-1">
+          <Label className="text-lg font-semibold">激活码兑换</Label>
+          <Description>输入管理后台发放的激活码，即可获得对应面试时长</Description>
+        </div>
+        <div className="mt-4 flex items-end gap-3">
+          <TextField
+            className="flex-1"
+            name="activation-code"
+            value={activationCode}
+            onChange={(value) => setActivationCode(formatCodeInput(value))}
+          >
+            <Label>激活码</Label>
+            <Input
+              placeholder="XXXX-XXXX-XXXX"
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void handleRedeem();
+                }
+              }}
+            />
+          </TextField>
+          <Button
+            className="bg-black text-white"
+            isDisabled={!user || redeeming || Boolean(pendingPlanId)}
+            isPending={redeeming}
+            onPress={() => void handleRedeem()}
+          >
+            {redeeming ? "兑换中" : "兑换"}
+          </Button>
+        </div>
+      </Card>
+
       <section className="mt-14">
         <h3 className="text-xl font-semibold tracking-tight">充值记录</h3>
         {historyOrders.length === 0 ? (
@@ -343,11 +425,13 @@ export function RechargePage() {
         ) : (
           <Table className="mt-4">
             <Table.ScrollContainer>
-              <Table.Content aria-label="充值记录" className="min-w-[520px]">
+              <Table.Content aria-label="充值记录" className="min-w-[720px]">
                 <Table.Header>
                   <Table.Column isRowHeader>订单号</Table.Column>
+                  <Table.Column>类型</Table.Column>
                   <Table.Column>充值时长</Table.Column>
                   <Table.Column>支付金额</Table.Column>
+                  <Table.Column>激活码</Table.Column>
                   <Table.Column>状态</Table.Column>
                 </Table.Header>
                 <Table.Body>
@@ -356,11 +440,21 @@ export function RechargePage() {
                       <Table.Cell>
                         <span className="font-mono text-sm">{order.out_trade_no}</span>
                       </Table.Cell>
+                      <Table.Cell>
+                        {orderTypeOf(order) === "activation_code" ? "激活码订单" : "支付订单"}
+                      </Table.Cell>
                       <Table.Cell>{order.minutes}分钟</Table.Cell>
                       <Table.Cell>{formatAmount(order.amount_total)}</Table.Cell>
                       <Table.Cell>
-                        <Chip size="sm" variant="soft" color={orderStatusColor(order.status)}>
-                          <Chip.Label>{orderStatusLabel(order.status)}</Chip.Label>
+                        {order.activation_code ? (
+                          <span className="font-mono text-sm">{order.activation_code}</span>
+                        ) : (
+                          "—"
+                        )}
+                      </Table.Cell>
+                      <Table.Cell>
+                        <Chip size="sm" variant="soft" color={orderStatusColor(order)}>
+                          <Chip.Label>{orderStatusLabel(order)}</Chip.Label>
                         </Chip>
                       </Table.Cell>
                     </Table.Row>

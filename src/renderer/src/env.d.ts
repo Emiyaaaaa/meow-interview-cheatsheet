@@ -5,7 +5,7 @@ declare module "*.css";
 type MediaPermissionStatus =
   "not-determined" | "granted" | "denied" | "restricted" | "unknown";
 
-type PermissionKind = "microphone" | "screen";
+type PermissionKind = "microphone" | "screen" | "audio-capture";
 
 type AudioCaptureSource = "system-audio" | "microphone";
 

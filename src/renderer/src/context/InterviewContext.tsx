@@ -34,7 +34,8 @@ interface InterviewContextValue {
   elapsedSeconds: number;
   finalTranscripts: string[];
   interimTranscript: string;
-  isAuthorizing: boolean;
+  isAuthorizingMicrophone: boolean;
+  isAuthorizingSystemCapture: boolean;
   isLegacyMacCapture: boolean;
   isMac: boolean;
   isMacAudioOnly: boolean;
@@ -64,7 +65,7 @@ const InterviewContext = createContext<InterviewContextValue | null>(null);
 function permissionKindForMode(
   mode: SystemAudioCaptureMode,
 ): PermissionKind | null {
-  if (mode === "core-audio") return "microphone";
+  if (mode === "core-audio") return "audio-capture";
   if (mode === "screen-capture") return "screen";
   return null;
 }
@@ -84,7 +85,9 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
       mode: isMac ? "unsupported" : "loopback",
     });
   const [capabilitiesLoaded, setCapabilitiesLoaded] = useState(!isMac);
-  const [isAuthorizing, setIsAuthorizing] = useState(false);
+  const [isAuthorizingMicrophone, setIsAuthorizingMicrophone] = useState(false);
+  const [isAuthorizingSystemCapture, setIsAuthorizingSystemCapture] =
+    useState(false);
   const [isStarted, setIsStarted] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -286,7 +289,7 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
   }, [audioCapabilities.mode]);
 
   useEffect(() => {
-    if (captureSource !== "microphone" || !isMac) return;
+    if (!isMac) return;
 
     const refresh = () => {
       void window.desktop
@@ -295,7 +298,7 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     };
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
-  }, [captureSource, isMac]);
+  }, [isMac]);
 
   const refreshCapturePermission = useCallback(async (kind: PermissionKind) => {
     const status = await window.desktop.getPermissionStatus(kind);
@@ -311,9 +314,9 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
 
   const authorizeSystemCapture = useCallback(async () => {
     const kind = permissionKindForMode(audioCapabilities.mode);
-    if (!isMac || !kind || isAuthorizing) return;
+    if (!isMac || !kind || isAuthorizingSystemCapture) return;
 
-    setIsAuthorizing(true);
+    setIsAuthorizingSystemCapture(true);
     setTranscriptionError(null);
     try {
       const current = await refreshCapturePermission(kind);
@@ -322,13 +325,17 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
       }
 
       // 系统只会在「尚未询问」时弹窗，被拒绝后必须去系统设置里手动开启。
-      if (current !== "not-determined") {
+      if (current !== "not-determined" && current !== "unknown") {
         await window.desktop.openPermissionSettings(kind);
         return;
       }
 
-      if (kind === "microphone") {
-        setCapturePermission(await window.desktop.requestPermission(kind));
+      if (kind === "audio-capture") {
+        const status = await window.desktop.requestPermission(kind);
+        setCapturePermission(status);
+        if (status !== "granted") {
+          await window.desktop.openPermissionSettings(kind);
+        }
         return;
       }
 
@@ -346,14 +353,19 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
         error instanceof Error ? error.message : "系统录制权限授权失败",
       );
     } finally {
-      setIsAuthorizing(false);
+      setIsAuthorizingSystemCapture(false);
     }
-  }, [audioCapabilities.mode, isAuthorizing, isMac, refreshCapturePermission]);
+  }, [
+    audioCapabilities.mode,
+    isAuthorizingSystemCapture,
+    isMac,
+    refreshCapturePermission,
+  ]);
 
   const authorizeMicrophone = useCallback(async () => {
-    if (!isMac || isAuthorizing) return;
+    if (!isMac || isAuthorizingMicrophone) return;
 
-    setIsAuthorizing(true);
+    setIsAuthorizingMicrophone(true);
     setTranscriptionError(null);
     try {
       const current = await refreshMicrophonePermission();
@@ -375,9 +387,9 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
         error instanceof Error ? error.message : "麦克风权限授权失败",
       );
     } finally {
-      setIsAuthorizing(false);
+      setIsAuthorizingMicrophone(false);
     }
-  }, [isAuthorizing, isMac, refreshMicrophonePermission]);
+  }, [isAuthorizingMicrophone, isMac, refreshMicrophonePermission]);
 
   const resetInterviewSession = useCallback(
     (options?: { interviewDirection?: string; resumeFileId?: string }) => {
@@ -547,7 +559,8 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
       elapsedSeconds,
       finalTranscripts,
       interimTranscript,
-      isAuthorizing,
+      isAuthorizingMicrophone,
+      isAuthorizingSystemCapture,
       isLegacyMacCapture: audioCapabilities.mode === "screen-capture",
       isMac,
       isMacAudioOnly: audioCapabilities.mode === "core-audio",
@@ -582,7 +595,8 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
       elapsedSeconds,
       finalTranscripts,
       interimTranscript,
-      isAuthorizing,
+      isAuthorizingMicrophone,
+      isAuthorizingSystemCapture,
       isMac,
       isStarted,
       isStarting,

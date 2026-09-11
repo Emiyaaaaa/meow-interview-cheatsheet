@@ -1,7 +1,7 @@
 {
   "name": "meow-interview-cheatsheet",
   "productName": "喵喵面试助手",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "你的 AI 面试辅助桌面应用",
   "main": "./out/main/index.js",
   "type": "module",
@@ -22,6 +22,7 @@
     "@heroui/react": "^3.2.4",
     "@heroui/styles": "^3.2.4",
     "audiotee": "^0.0.7",
+    "koffi": "^3.2.1",
     "lucide-react": "^1.31.0",
     "openai": "^7.8.0",
     "qrcode.react": "^4.2.0",
@@ -58,6 +59,9 @@
     "appId": "com.meow-interview-cheatsheet",
     "productName": "喵喵面试助手",
     "asar": true,
+    "asarUnpack": [
+      "node_modules/koffi/**"
+    ],
     "directories": {
       "output": "dist"
     },
@@ -82,7 +86,7 @@
       "category": "public.app-category.productivity",
       "extendInfo": {
         "NSAudioCaptureUsageDescription": "用于获取会议软件的系统音频并实时转换为面试文字记录",
-        "NSMicrophoneUsageDescription": "用于获取会议软件的系统音频并实时转换为面试文字记录"
+        "NSMicrophoneUsageDescription": "用于采集麦克风输入作为面试官声音，适用于双设备面试场景"
       },
       "target": "dmg"
     },
