@@ -1,4 +1,5 @@
 import {
+  Alert,
   Button,
   Card,
   ComboBox,
@@ -114,7 +115,7 @@ function PermissionStatus({
 type ApiCheckState = "idle" | "checking" | "ok" | "error";
 type ApiCheckResult = { ok: true } | { ok: false; error: string };
 type ApiCheckDetail = { label: string; result: ApiCheckResult | null };
-type PrepStepState = "idle" | "loading" | "ok" | "error";
+type PrepStepState = "idle" | "loading" | "ok" | "warning" | "error";
 
 function settledApiResult(
   settled: PromiseSettledResult<unknown>,
@@ -231,6 +232,11 @@ function PrepStepRow({
           <Check className="size-3.5 shrink-0 text-emerald-600" />
           <span className="truncate text-emerald-600">{statusText}</span>
         </>
+      ) : state === "warning" ? (
+        <>
+          <CircleAlert className="size-3.5 shrink-0 text-amber-500" />
+          <span className="truncate text-amber-600">{statusText}</span>
+        </>
       ) : state === "error" ? (
         <>
           <CircleAlert className="size-3.5 shrink-0 text-red-500" />
@@ -333,8 +339,8 @@ export function InterviewPreparePage() {
 
     setResumeFileId("");
     if (!resume) {
-      setResumeStep("ok");
-      setResumeStatusText("未选择");
+      setResumeStep("warning");
+      setResumeStatusText("未选择，可能影响回答质量");
     } else {
       setResumeStep("loading");
       setResumeStatusText("上传中");
@@ -343,8 +349,8 @@ export function InterviewPreparePage() {
     async function prepareResume() {
       if (!resume) {
         if (cancelled) return;
-        setResumeStep("ok");
-        setResumeStatusText("未选择");
+        setResumeStep("warning");
+        setResumeStatusText("未选择，可能影响回答质量");
         return;
       }
 
@@ -413,6 +419,8 @@ export function InterviewPreparePage() {
   }
 
   const canStart = remainingSeconds > 0 && allPermissionsGranted;
+  const lowQuota = remainingSeconds > 0 && remainingSeconds < 3600;
+  const resumeReady = resumeStep === "ok" || resumeStep === "warning";
 
   function requireLogin() {
     if (user) return true;
@@ -426,7 +434,7 @@ export function InterviewPreparePage() {
   }
 
   async function handleStartFromPrep() {
-    if (!canStart || resumeStep !== "ok" || apiCheckState !== "ok") return;
+    if (!canStart || !resumeReady || apiCheckState !== "ok") return;
     await startInterview({
       interviewDirection: interviewDirection.trim() || undefined,
       resumeFileId: resumeFileId || undefined,
@@ -698,7 +706,15 @@ export function InterviewPreparePage() {
             <Modal.Header>
               <Modal.Heading>准备工作</Modal.Heading>
             </Modal.Header>
-            <Modal.Body className="gap-4">
+            <Modal.Body className="gap-2 flex flex-col">
+              {lowQuota ? (
+                <Alert className="w-full bg-amber-500/10" status="warning">
+                  <Alert.Indicator />
+                  <Alert.Content>
+                    <Alert.Title>剩余时长不足 1 小时</Alert.Title>
+                  </Alert.Content>
+                </Alert>
+              ) : null}
               <PrepStepRow
                 label="简历文件上传并解析"
                 state={resumeStep}
@@ -722,7 +738,7 @@ export function InterviewPreparePage() {
               ) : null}
               <Button
                 className="w-full bg-emerald-600/20 text-emerald-700"
-                isDisabled={resumeStep !== "ok" || apiCheckState !== "ok"}
+                isDisabled={!resumeReady || apiCheckState !== "ok"}
                 isPending={isStarting}
                 onPress={() => void handleStartFromPrep()}
               >

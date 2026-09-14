@@ -25,7 +25,8 @@ import {
   createPaymentOrder,
   fetchOrder,
   fetchOrders,
-  fetchPlans,
+  getCachedPlans,
+  prefetchPlans,
   redeemActivationCode,
   type AccountOrder,
   type RechargePlan,
@@ -56,7 +57,9 @@ function formatCodeInput(value: string) {
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "")
     .slice(0, 12);
-  const parts = [raw.slice(0, 4), raw.slice(4, 8), raw.slice(8, 12)].filter(Boolean);
+  const parts = [raw.slice(0, 4), raw.slice(4, 8), raw.slice(8, 12)].filter(
+    Boolean,
+  );
   return parts.join("-");
 }
 
@@ -65,7 +68,8 @@ function orderTypeOf(order: AccountOrder) {
 }
 
 function orderStatusLabel(order: AccountOrder) {
-  if (orderTypeOf(order) === "activation_code" && order.status === "paid") return "已兑换";
+  if (orderTypeOf(order) === "activation_code" && order.status === "paid")
+    return "已兑换";
   if (order.status === "paid") return "已支付";
   if (order.status === "refund_pending") return "退款审核中";
   if (order.status === "refunded") return "已退款";
@@ -73,7 +77,8 @@ function orderStatusLabel(order: AccountOrder) {
 }
 
 function orderStatusColor(order: AccountOrder) {
-  if (orderTypeOf(order) === "activation_code" && order.status === "paid") return "success" as const;
+  if (orderTypeOf(order) === "activation_code" && order.status === "paid")
+    return "success" as const;
   if (order.status === "paid") return "success" as const;
   if (order.status === "refund_pending") return "warning" as const;
   if (order.status === "refunded") return "default" as const;
@@ -82,7 +87,9 @@ function orderStatusColor(order: AccountOrder) {
 
 export function RechargePage() {
   const { user, setUser, refreshUser } = useAuth();
-  const [plans, setPlans] = useState<RechargePlan[]>([]);
+  const [plans, setPlans] = useState<RechargePlan[]>(
+    () => getCachedPlans() ?? [],
+  );
   const [orders, setOrders] = useState<AccountOrder[]>([]);
   const [loadError, setLoadError] = useState("");
   const [actionError, setActionError] = useState("");
@@ -97,13 +104,17 @@ export function RechargePage() {
   const [refundSubmitting, setRefundSubmitting] = useState(false);
   const [activationCode, setActivationCode] = useState("");
   const [redeeming, setRedeeming] = useState(false);
+  const historyModal = useOverlayState();
   const refundModal = useOverlayState();
   const activeRef = useRef(true);
   const pollTokenRef = useRef(0);
 
-  const historyOrders = orders.filter((order) => HISTORY_STATUSES.has(order.status));
+  const historyOrders = orders.filter((order) =>
+    HISTORY_STATUSES.has(order.status),
+  );
   const refundableOrders = orders.filter(
-    (order) => order.status === "paid" && orderTypeOf(order) !== "activation_code",
+    (order) =>
+      order.status === "paid" && orderTypeOf(order) !== "activation_code",
   );
 
   useEffect(() => {
@@ -116,7 +127,7 @@ export function RechargePage() {
 
   useEffect(() => {
     let active = true;
-    void fetchPlans()
+    void prefetchPlans()
       .then((next) => {
         if (active) {
           setPlans(next);
@@ -227,7 +238,9 @@ export function RechargePage() {
       refundModal.close();
       await reloadOrders();
     } catch (error) {
-      setRefundError(error instanceof Error ? error.message : "提交退款申请失败");
+      setRefundError(
+        error instanceof Error ? error.message : "提交退款申请失败",
+      );
     } finally {
       setRefundSubmitting(false);
     }
@@ -327,7 +340,7 @@ export function RechargePage() {
       ) : null}
 
       <div className="mt-10 grid grid-cols-2 gap-5 lg:grid-cols-3">
-        {plans.map((plan, index) => {
+        {plans.map((plan) => {
           const discountLabel = formatDiscountLabel(
             fenToYuan(plan.price_fen),
             fenToYuan(plan.regular_fen),
@@ -368,10 +381,9 @@ export function RechargePage() {
                   </span>
                 </div>
                 <Button
-                  className={index === 1 ? "bg-black text-white" : ""}
+                  className="bg-emerald-600/20 text-emerald-700"
                   isDisabled={Boolean(claimedTrial) || Boolean(pendingPlanId)}
                   isPending={pending}
-                  variant={index === 1 ? "primary" : "outline"}
                   onPress={() => void handlePurchase(plan)}
                 >
                   {claimedTrial
@@ -391,16 +403,14 @@ export function RechargePage() {
       <Card className="mt-10 max-w-xl rounded-lg border border-black/6 p-4">
         <div className="flex flex-col gap-1">
           <Label className="text-lg font-semibold">激活码兑换</Label>
-          <Description>输入管理后台发放的激活码，即可获得对应面试时长</Description>
         </div>
-        <div className="mt-4 flex items-end gap-3">
+        <div className="flex items-end gap-3">
           <TextField
             className="flex-1"
             name="activation-code"
             value={activationCode}
             onChange={(value) => setActivationCode(formatCodeInput(value))}
           >
-            <Label>激活码</Label>
             <Input
               placeholder="XXXX-XXXX-XXXX"
               onKeyDown={(event) => {
@@ -422,55 +432,10 @@ export function RechargePage() {
         </div>
       </Card>
 
-      <section className="mt-14">
-        <h3 className="text-xl font-semibold tracking-tight">充值记录</h3>
-        {historyOrders.length === 0 ? (
-          <p className="mt-4 text-sm text-muted">暂无充值记录</p>
-        ) : (
-          <Table className="mt-4">
-            <Table.ScrollContainer>
-              <Table.Content aria-label="充值记录" className="min-w-[720px]">
-                <Table.Header>
-                  <Table.Column isRowHeader>订单号</Table.Column>
-                  <Table.Column>类型</Table.Column>
-                  <Table.Column>充值时长</Table.Column>
-                  <Table.Column>支付金额</Table.Column>
-                  <Table.Column>激活码</Table.Column>
-                  <Table.Column>状态</Table.Column>
-                </Table.Header>
-                <Table.Body>
-                  {historyOrders.map((order) => (
-                    <Table.Row id={order.id} key={order.id}>
-                      <Table.Cell>
-                        <span className="font-mono text-sm">{order.out_trade_no}</span>
-                      </Table.Cell>
-                      <Table.Cell>
-                        {orderTypeOf(order) === "activation_code" ? "激活码订单" : "支付订单"}
-                      </Table.Cell>
-                      <Table.Cell>{order.minutes}分钟</Table.Cell>
-                      <Table.Cell>{formatAmount(order.amount_total)}</Table.Cell>
-                      <Table.Cell>
-                        {order.activation_code ? (
-                          <span className="font-mono text-sm">{order.activation_code}</span>
-                        ) : (
-                          "—"
-                        )}
-                      </Table.Cell>
-                      <Table.Cell>
-                        <Chip size="sm" variant="soft" color={orderStatusColor(order)}>
-                          <Chip.Label>{orderStatusLabel(order)}</Chip.Label>
-                        </Chip>
-                      </Table.Cell>
-                    </Table.Row>
-                  ))}
-                </Table.Body>
-              </Table.Content>
-            </Table.ScrollContainer>
-          </Table>
-        )}
-      </section>
-
-      <div className="mt-12 flex justify-center border-t border-black/6 pt-8">
+      <div className="mt-12 flex justify-center gap-3 border-t border-black/6 pt-8">
+        <Button variant="outline" onPress={historyModal.open}>
+          充值记录
+        </Button>
         <Button
           isDisabled={Boolean(user) && refundableOrders.length === 0}
           variant="outline"
@@ -480,7 +445,84 @@ export function RechargePage() {
         </Button>
       </div>
 
-      <Modal.Backdrop isOpen={refundModal.isOpen} onOpenChange={refundModal.setOpen}>
+      <Modal.Backdrop
+        isOpen={historyModal.isOpen}
+        onOpenChange={historyModal.setOpen}
+      >
+        <Modal.Container size="lg">
+          <Modal.Dialog className="sm:max-w-4xl">
+            <Modal.CloseTrigger />
+            <Modal.Header>
+              <Modal.Heading>充值记录</Modal.Heading>
+            </Modal.Header>
+            <Modal.Body>
+              {historyOrders.length === 0 ? (
+                <p className="text-sm text-muted">暂无充值记录</p>
+              ) : (
+                <Table>
+                  <Table.ScrollContainer>
+                    <Table.Content aria-label="充值记录" className="min-w-180">
+                      <Table.Header>
+                        <Table.Column isRowHeader>订单号</Table.Column>
+                        <Table.Column>类型</Table.Column>
+                        <Table.Column>充值时长</Table.Column>
+                        <Table.Column>支付金额</Table.Column>
+                        <Table.Column>激活码</Table.Column>
+                        <Table.Column>状态</Table.Column>
+                      </Table.Header>
+                      <Table.Body>
+                        {historyOrders.map((order) => (
+                          <Table.Row id={order.id} key={order.id}>
+                            <Table.Cell>
+                              <span className="font-mono text-sm">
+                                {order.out_trade_no}
+                              </span>
+                            </Table.Cell>
+                            <Table.Cell>
+                              {orderTypeOf(order) === "activation_code"
+                                ? "激活码订单"
+                                : "支付订单"}
+                            </Table.Cell>
+                            <Table.Cell>{order.minutes}分钟</Table.Cell>
+                            <Table.Cell>
+                              {formatAmount(order.amount_total)}
+                            </Table.Cell>
+                            <Table.Cell>
+                              {order.activation_code ? (
+                                <span className="font-mono text-sm">
+                                  {order.activation_code}
+                                </span>
+                              ) : (
+                                "—"
+                              )}
+                            </Table.Cell>
+                            <Table.Cell>
+                              <Chip
+                                size="sm"
+                                variant="soft"
+                                color={orderStatusColor(order)}
+                              >
+                                <Chip.Label>
+                                  {orderStatusLabel(order)}
+                                </Chip.Label>
+                              </Chip>
+                            </Table.Cell>
+                          </Table.Row>
+                        ))}
+                      </Table.Body>
+                    </Table.Content>
+                  </Table.ScrollContainer>
+                </Table>
+              )}
+            </Modal.Body>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+
+      <Modal.Backdrop
+        isOpen={refundModal.isOpen}
+        onOpenChange={refundModal.setOpen}
+      >
         <Modal.Container>
           <Modal.Dialog className="sm:max-w-md">
             <Modal.CloseTrigger />
@@ -505,7 +547,11 @@ export function RechargePage() {
                     {refundableOrders.map((order) => {
                       const label = `${order.out_trade_no} · ${order.minutes}分钟 · ${formatAmount(order.amount_total)}`;
                       return (
-                        <ListBox.Item id={order.id} key={order.id} textValue={label}>
+                        <ListBox.Item
+                          id={order.id}
+                          key={order.id}
+                          textValue={label}
+                        >
                           {label}
                           <ListBox.ItemIndicator />
                         </ListBox.Item>
@@ -526,7 +572,11 @@ export function RechargePage() {
                   placeholder="请说明申请退款的原因"
                 />
               </TextField>
-              <TextField name="contact" value={refundContact} onChange={setRefundContact}>
+              <TextField
+                name="contact"
+                value={refundContact}
+                onChange={setRefundContact}
+              >
                 <Label>联系方式（选填）</Label>
                 <Input placeholder="手机号 / 微信 / 邮箱" />
               </TextField>

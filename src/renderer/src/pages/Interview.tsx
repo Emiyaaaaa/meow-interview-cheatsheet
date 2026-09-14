@@ -5,23 +5,13 @@ import { EMPTY_OVERLAY_STATE } from "../../../shared/overlay";
 import { QAPanel } from "../components/QAPanel";
 import { useInterview } from "../context/InterviewContext";
 
-function formatDuration(totalSeconds: number) {
-  const minutes = Math.floor(totalSeconds / 60)
-    .toString()
-    .padStart(2, "0");
-  const seconds = (totalSeconds % 60).toString().padStart(2, "0");
-  return `${minutes}:${seconds}`;
-}
-
 function InterviewChrome({
-  elapsedSeconds,
   error,
   interimText,
   onStop,
   overlay,
   qaItems,
 }: {
-  elapsedSeconds: number;
   error: string | null;
   interimText: string;
   onStop: () => void;
@@ -52,9 +42,7 @@ function InterviewChrome({
         >
           <div className="flex items-center gap-2 rounded-full border border-black/8 bg-white/80 px-3 py-1 shadow-sm">
             <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
-            <span className="font-mono text-xs text-muted">
-              {formatDuration(elapsedSeconds)}
-            </span>
+            <span className="text-xs text-muted">面试中</span>
           </div>
           <div className="flex-1" />
           <Button
@@ -86,17 +74,11 @@ function InterviewChrome({
 }
 
 export function InterviewPage() {
-  const {
-    elapsedSeconds,
-    interimTranscript,
-    qaItems,
-    stopInterview,
-    transcriptionError,
-  } = useInterview();
+  const { interimTranscript, qaItems, stopInterview, transcriptionError } =
+    useInterview();
 
   return (
     <InterviewChrome
-      elapsedSeconds={elapsedSeconds}
       error={transcriptionError}
       interimText={interimTranscript}
       onStop={stopInterview}
@@ -122,7 +104,6 @@ export function OverlayInterviewPage() {
 
   return (
     <InterviewChrome
-      elapsedSeconds={state.elapsedSeconds}
       error={state.transcriptionError}
       interimText={state.interimTranscript}
       overlay

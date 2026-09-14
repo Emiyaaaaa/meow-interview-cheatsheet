@@ -126,9 +126,30 @@ export function persistSessionToken(token: string) {
   setSessionToken(token);
 }
 
+let plansCache: RechargePlan[] | null = null;
+let plansInflight: Promise<RechargePlan[]> | null = null;
+
+export function getCachedPlans(): RechargePlan[] | null {
+  return plansCache;
+}
+
+export function prefetchPlans() {
+  return fetchPlans();
+}
+
 export async function fetchPlans() {
-  const result = await request<{ plans: RechargePlan[] }>("/plans");
-  return result.plans;
+  if (plansCache) return plansCache;
+  if (!plansInflight) {
+    plansInflight = request<{ plans: RechargePlan[] }>("/plans")
+      .then((result) => {
+        plansCache = result.plans;
+        return result.plans;
+      })
+      .finally(() => {
+        plansInflight = null;
+      });
+  }
+  return plansInflight;
 }
 
 export async function claimTrial() {

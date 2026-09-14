@@ -6,12 +6,15 @@ import {
   Clock,
   LogIn,
   LogOut,
+  MessageCircle,
   Play,
   Settings,
 } from "lucide-react";
 import { useAppName } from "../appName";
 import { useAuth } from "../context/AuthContext";
 import { useInterview } from "../context/InterviewContext";
+import { prefetchPlans } from "../services/account";
+import { ContactPage } from "./Contact";
 import { InterviewPreparePage } from "./InterviewPrepare";
 import { RechargePage } from "./Recharge";
 import { SettingsPage } from "./Settings";
@@ -22,7 +25,7 @@ function formatDuration(totalSeconds: number) {
   return `${hours}小时${minutes}分钟`;
 }
 
-type Page = "prepare" | "recharge" | "settings";
+type Page = "prepare" | "recharge" | "settings" | "contact";
 
 export function HomePage() {
   const { appName, setAppName } = useAppName();
@@ -39,6 +42,10 @@ export function HomePage() {
   const [page, setPage] = useState<Page>("prepare");
   const [loginOpen, setLoginOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
+
+  useEffect(() => {
+    void prefetchPlans();
+  }, []);
 
   useEffect(() => {
     if (user) setLoginOpen(false);
@@ -119,6 +126,20 @@ export function HomePage() {
               设置
             </span>
           </Button>
+          <Button
+            fullWidth
+            className={cn(
+              "justify-start",
+              page === "contact" && "bg-accent/10",
+            )}
+            variant="ghost"
+            onPress={() => setPage("contact")}
+          >
+            <span className="flex items-center gap-3">
+              <MessageCircle className="size-4" />
+              联系我们
+            </span>
+          </Button>
         </nav>
 
         <div className="mt-auto flex flex-col gap-2">
@@ -173,6 +194,8 @@ export function HomePage() {
           <InterviewPreparePage />
         ) : page === "recharge" ? (
           <RechargePage />
+        ) : page === "contact" ? (
+          <ContactPage />
         ) : (
           <SettingsPage appName={appName} onAppNameChange={setAppName} />
         )}
