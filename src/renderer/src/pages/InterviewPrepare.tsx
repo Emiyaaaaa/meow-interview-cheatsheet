@@ -11,6 +11,8 @@ import {
   RadioGroup,
   Separator,
   Spinner,
+  toast,
+  Tooltip,
 } from "@heroui/react";
 import {
   ArrowRightIcon,
@@ -19,8 +21,6 @@ import {
   Check,
   CircleAlert,
   FileText,
-  ListChecks,
-  MessageSquare,
   Mic,
   MonitorUp,
   Play,
@@ -112,7 +112,52 @@ function PermissionStatus({
 }
 
 type ApiCheckState = "idle" | "checking" | "ok" | "error";
+type ApiCheckResult = { ok: true } | { ok: false; error: string };
+type ApiCheckDetail = { label: string; result: ApiCheckResult | null };
 type PrepStepState = "idle" | "loading" | "ok" | "error";
+
+function settledApiResult(
+  settled: PromiseSettledResult<unknown>,
+  fallback: string,
+): ApiCheckResult {
+  if (settled.status === "fulfilled") return { ok: true };
+  return {
+    ok: false,
+    error: settled.reason instanceof Error ? settled.reason.message : fallback,
+  };
+}
+
+async function checkApiConnections() {
+  const [asrSettled, chatSettled] = await Promise.allSettled([
+    checkAsrConnection(),
+    checkChatConnection(),
+  ]);
+  if (asrSettled.status === "rejected") console.error(asrSettled.reason);
+  if (chatSettled.status === "rejected") console.error(chatSettled.reason);
+  return {
+    asr: settledApiResult(asrSettled, "语音识别服务检测失败"),
+    chat: settledApiResult(chatSettled, "对话服务检测失败"),
+  };
+}
+
+function ApiCheckDetailList({ details }: { details: ApiCheckDetail[] }) {
+  return (
+    <div className="flex max-w-xs flex-col gap-1.5 px-1 py-1.5">
+      {details.map((item) => {
+        const failed = !item.result?.ok;
+        const error = item.result && !item.result.ok ? item.result.error : "";
+        return (
+          <p key={item.label} className="text-sm">
+            <span className="font-medium">{item.label}</span>
+            <span className={failed ? "text-red-500" : "text-emerald-600"}>
+              {failed ? ` 失败${error ? `：${error}` : ""}` : " 成功"}
+            </span>
+          </p>
+        );
+      })}
+    </div>
+  );
+}
 
 interface SelectedResume {
   md5: string;
@@ -121,11 +166,11 @@ interface SelectedResume {
 }
 
 function ApiCheckStatus({
-  errorLabel,
+  details,
   onCheck,
   state,
 }: {
-  errorLabel?: string;
+  details: ApiCheckDetail[];
   onCheck: () => void;
   state: ApiCheckState;
 }) {
@@ -139,9 +184,16 @@ function ApiCheckStatus({
           正常
         </div>
       ) : state === "error" ? (
-        <span className="max-w-40 truncate text-xs text-red-500">
-          {errorLabel || "检测失败"}
-        </span>
+        <Tooltip delay={0}>
+          <Tooltip.Trigger className="flex max-w-40 items-center gap-1 text-xs text-red-500">
+            <CircleAlert className="size-3 shrink-0" />
+            检测失败
+          </Tooltip.Trigger>
+          <Tooltip.Content showArrow>
+            <Tooltip.Arrow />
+            <ApiCheckDetailList details={details} />
+          </Tooltip.Content>
+        </Tooltip>
       ) : null}
       <Button
         className="text-xs h-6"
@@ -157,36 +209,52 @@ function ApiCheckStatus({
 }
 
 function PrepStepRow({
+  details,
   label,
   state,
   statusText,
 }: {
+  details?: ApiCheckDetail[];
   label: string;
   state: PrepStepState;
   statusText: string;
 }) {
+  const status = (
+    <div className="flex min-w-0 max-w-52 items-center justify-end gap-1.5 text-xs">
+      {state === "loading" ? (
+        <>
+          <Spinner size="sm" />
+          <span className="truncate text-muted">{statusText}</span>
+        </>
+      ) : state === "ok" ? (
+        <>
+          <Check className="size-3.5 shrink-0 text-emerald-600" />
+          <span className="truncate text-emerald-600">{statusText}</span>
+        </>
+      ) : state === "error" ? (
+        <>
+          <CircleAlert className="size-3.5 shrink-0 text-red-500" />
+          <span className="truncate text-red-500">{statusText}</span>
+        </>
+      ) : null}
+    </div>
+  );
+
   return (
     <div className="flex items-center gap-3">
       <p className="text-sm">{label}</p>
       <div className="flex-1" />
-      <div className="flex min-w-0 max-w-52 items-center justify-end gap-1.5 text-xs">
-        {state === "loading" ? (
-          <>
-            <Spinner size="sm" />
-            <span className="truncate text-muted">{statusText}</span>
-          </>
-        ) : state === "ok" ? (
-          <>
-            <Check className="size-3.5 shrink-0 text-emerald-600" />
-            <span className="truncate text-emerald-600">{statusText}</span>
-          </>
-        ) : state === "error" ? (
-          <>
-            <CircleAlert className="size-3.5 shrink-0 text-red-500" />
-            <span className="truncate text-red-500">{statusText}</span>
-          </>
-        ) : null}
-      </div>
+      {state === "error" && details ? (
+        <Tooltip delay={0}>
+          <Tooltip.Trigger>{status}</Tooltip.Trigger>
+          <Tooltip.Content showArrow>
+            <Tooltip.Arrow />
+            <ApiCheckDetailList details={details} />
+          </Tooltip.Content>
+        </Tooltip>
+      ) : (
+        status
+      )}
     </div>
   );
 }
@@ -218,45 +286,43 @@ export function InterviewPreparePage() {
   const [resume, setResume] = useState<SelectedResume | null>(null);
   const [isPickingResume, setIsPickingResume] = useState(false);
   const [interviewDirection, setInterviewDirection] = useState("");
-  const [asrCheckState, setAsrCheckState] = useState<ApiCheckState>("idle");
-  const [asrCheckError, setAsrCheckError] = useState("");
-  const [chatCheckState, setChatCheckState] = useState<ApiCheckState>("idle");
-  const [chatCheckError, setChatCheckError] = useState("");
+  const [apiCheckState, setApiCheckState] = useState<ApiCheckState>("idle");
+  const [asrCheckResult, setAsrCheckResult] = useState<ApiCheckResult | null>(
+    null,
+  );
+  const [chatCheckResult, setChatCheckResult] = useState<ApiCheckResult | null>(
+    null,
+  );
   const [prepOpen, setPrepOpen] = useState(false);
   const [resumeStep, setResumeStep] = useState<PrepStepState>("idle");
   const [resumeStatusText, setResumeStatusText] = useState("");
-  const [asrStep, setAsrStep] = useState<PrepStepState>("idle");
-  const [asrStatusText, setAsrStatusText] = useState("");
   const [resumeFileId, setResumeFileId] = useState("");
+  const apiCheckDetails: ApiCheckDetail[] = [
+    { label: "实时语音识别接口", result: asrCheckResult },
+    { label: "回答生成接口", result: chatCheckResult },
+  ];
+  const apiPrepState: PrepStepState =
+    apiCheckState === "ok"
+      ? "ok"
+      : apiCheckState === "error"
+        ? "error"
+        : "loading";
+  const apiPrepText =
+    apiCheckState === "ok"
+      ? "正常"
+      : apiCheckState === "error"
+        ? "检测失败"
+        : "检测中";
 
-  async function handleCheckAsr() {
-    setAsrCheckState("checking");
-    setAsrCheckError("");
-    try {
-      await checkAsrConnection();
-      setAsrCheckState("ok");
-    } catch (error) {
-      setAsrCheckState("error");
-      setAsrCheckError(
-        error instanceof Error ? error.message : "语音识别服务检测失败",
-      );
-      console.error(error);
-    }
-  }
-
-  async function handleCheckChat() {
-    setChatCheckState("checking");
-    setChatCheckError("");
-    try {
-      await checkChatConnection();
-      setChatCheckState("ok");
-    } catch (error) {
-      setChatCheckState("error");
-      setChatCheckError(
-        error instanceof Error ? error.message : "对话服务检测失败",
-      );
-      console.error(error);
-    }
+  async function runApiCheck(isCancelled?: () => boolean) {
+    setApiCheckState("checking");
+    setAsrCheckResult(null);
+    setChatCheckResult(null);
+    const { asr, chat } = await checkApiConnections();
+    if (isCancelled?.()) return;
+    setAsrCheckResult(asr);
+    setChatCheckResult(chat);
+    setApiCheckState(asr.ok && chat.ok ? "ok" : "error");
   }
 
   useEffect(() => {
@@ -266,8 +332,6 @@ export function InterviewPreparePage() {
     let cancelled = false;
 
     setResumeFileId("");
-    setAsrStep("loading");
-    setAsrStatusText("连接中");
     if (!resume) {
       setResumeStep("ok");
       setResumeStatusText("未选择");
@@ -319,24 +383,8 @@ export function InterviewPreparePage() {
       }
     }
 
-    async function prepareAsr() {
-      try {
-        await checkAsrConnection();
-        if (cancelled) return;
-        setAsrStep("ok");
-        setAsrStatusText("已连接");
-      } catch (error) {
-        if (cancelled) return;
-        setAsrStep("error");
-        setAsrStatusText(
-          error instanceof Error ? error.message : "语音识别服务连接失败",
-        );
-        console.error(error);
-      }
-    }
-
     void prepareResume();
-    void prepareAsr();
+    void runApiCheck(() => cancelled);
 
     return () => {
       cancelled = true;
@@ -364,11 +412,21 @@ export function InterviewPreparePage() {
     setPrepOpen(open);
   }
 
-  const canStart =
-    Boolean(user) && remainingSeconds > 0 && allPermissionsGranted;
+  const canStart = remainingSeconds > 0 && allPermissionsGranted;
+
+  function requireLogin() {
+    if (user) return true;
+    toast("请登录");
+    return false;
+  }
+
+  function handleOpenPrep() {
+    if (!requireLogin()) return;
+    setPrepOpen(true);
+  }
 
   async function handleStartFromPrep() {
-    if (!canStart || resumeStep !== "ok" || asrStep !== "ok") return;
+    if (!canStart || resumeStep !== "ok" || apiCheckState !== "ok") return;
     await startInterview({
       interviewDirection: interviewDirection.trim() || undefined,
       resumeFileId: resumeFileId || undefined,
@@ -447,32 +505,16 @@ export function InterviewPreparePage() {
             <div className="flex items-center gap-2">
               <AudioLines className="size-4" />
               <p className="flex items-center gap-1 text-sm">
-                实时语音识别接口
-                <HelpTip title="ASR 接口">
-                  检测语音识别服务是否可连接，用于将面试官语音转成文字
+                接口连通性检查
+                <HelpTip title="接口连通性">
+                  并行检测语音识别与回答生成服务是否可连接
                 </HelpTip>
               </p>
               <div className="flex-1" />
               <ApiCheckStatus
-                errorLabel={asrCheckError}
-                state={asrCheckState}
-                onCheck={() => void handleCheckAsr()}
-              />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <MessageSquare className="size-4" />
-              <p className="flex items-center gap-1 text-sm">
-                回答生成接口
-                <HelpTip title="Chat 接口">
-                  检测对话服务是否可用，用于生成面试回答建议
-                </HelpTip>
-              </p>
-              <div className="flex-1" />
-              <ApiCheckStatus
-                errorLabel={chatCheckError}
-                state={chatCheckState}
-                onCheck={() => void handleCheckChat()}
+                details={apiCheckDetails}
+                state={apiCheckState}
+                onCheck={() => void runApiCheck()}
               />
             </div>
           </div>
@@ -611,9 +653,9 @@ export function InterviewPreparePage() {
       <div className="flex flex-col items-center justify-center py-2 text-center">
         <Button
           className="mt-4 h-12 min-w-52 bg-emerald-600/20 px-8 text-base text-emerald-700"
-          isDisabled={!canStart}
+          isDisabled={Boolean(user) && !canStart}
           size="lg"
-          onPress={() => setPrepOpen(true)}
+          onPress={handleOpenPrep}
         >
           <Play size="sm" />
           开始面试
@@ -621,27 +663,25 @@ export function InterviewPreparePage() {
         {IS_DEBUG ? (
           <Button
             className="mt-2 h-8 min-w-52 text-xs text-muted"
-            isDisabled={!user}
             size="sm"
             variant="tertiary"
-            onPress={() =>
-              startInterviewDebug({
+            onPress={() => {
+              if (!requireLogin()) return;
+              void startInterviewDebug({
                 interviewDirection: interviewDirection.trim() || undefined,
-              })
-            }
+              });
+            }}
           >
             打开面试面板
           </Button>
         ) : null}
         {transcriptionError ? (
           <p className="mt-3 text-sm text-red-600">{transcriptionError}</p>
-        ) : !user ? (
-          <p className="mt-3 text-xs text-muted">请先使用微信登录</p>
-        ) : remainingSeconds <= 0 ? (
+        ) : user && remainingSeconds <= 0 ? (
           <p className="mt-3 text-xs text-muted">
             时长不足，请先充值或领取体验卡
           </p>
-        ) : !allPermissionsGranted ? (
+        ) : user && !allPermissionsGranted ? (
           <p className="mt-3 text-xs text-muted">请先完成全部权限授权</p>
         ) : null}
       </div>
@@ -656,9 +696,6 @@ export function InterviewPreparePage() {
           <Modal.Dialog>
             {isStarting ? null : <Modal.CloseTrigger />}
             <Modal.Header>
-              <Modal.Icon className="bg-emerald-600/15 text-emerald-700">
-                <ListChecks className="size-5" />
-              </Modal.Icon>
               <Modal.Heading>准备工作</Modal.Heading>
             </Modal.Header>
             <Modal.Body className="gap-4">
@@ -668,9 +705,10 @@ export function InterviewPreparePage() {
                 statusText={resumeStatusText}
               />
               <PrepStepRow
-                label="连接语音识别服务"
-                state={asrStep}
-                statusText={asrStatusText}
+                details={apiCheckDetails}
+                label="接口连通性检查"
+                state={apiPrepState}
+                statusText={apiPrepText}
               />
             </Modal.Body>
             <Modal.Footer className="flex-col gap-3">
@@ -684,7 +722,7 @@ export function InterviewPreparePage() {
               ) : null}
               <Button
                 className="w-full bg-emerald-600/20 text-emerald-700"
-                isDisabled={resumeStep !== "ok" || asrStep !== "ok"}
+                isDisabled={resumeStep !== "ok" || apiCheckState !== "ok"}
                 isPending={isStarting}
                 onPress={() => void handleStartFromPrep()}
               >

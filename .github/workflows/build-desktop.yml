@@ -198,3 +198,68 @@ jobs:
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Requires repo secrets: QINIU_ACCESS_KEY, QINIU_SECRET_KEY, QINIU_BUCKET
+  upload-qiniu:
+    name: Upload to Qiniu
+    needs: [detect, build-macos, build-windows]
+    if: needs.detect.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Prepare Qiniu objects
+        id: prepare
+        env:
+          VERSION: ${{ needs.detect.outputs.version }}
+          QINIU_ACCESS_KEY: ${{ secrets.QINIU_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${QINIU_ACCESS_KEY}" ]]; then
+            echo "QINIU_ACCESS_KEY is not configured, skip upload"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+          mkdir -p "desktop/v${VERSION}"
+          shopt -s nullglob
+          packages=(artifacts/*.dmg artifacts/*.exe artifacts/*.DMG artifacts/*.EXE)
+          if [[ ${#packages[@]} -eq 0 ]]; then
+            echo "No desktop packages found in artifacts/"
+            ls -la artifacts || true
+            exit 1
+          fi
+          cp "${packages[@]}" "desktop/v${VERSION}/"
+          ls -la "desktop/v${VERSION}"
+
+      - name: Upload packages to Qiniu Kodo
+        if: steps.prepare.outputs.skip != 'true'
+        uses: qiniu/upload-action@e36edd33ba93d5b1b62d2fcb3cc8d414f7812aff
+        with:
+          access_key: ${{ secrets.QINIU_ACCESS_KEY }}
+          secret_key: ${{ secrets.QINIU_SECRET_KEY }}
+          bucket: ${{ secrets.QINIU_BUCKET }}
+          overwrite: true
+          artifacts: desktop/v${{ needs.detect.outputs.version }}/*
+
+      - name: Check out cleanup script
+        if: steps.prepare.outputs.skip != 'true' && needs.detect.outputs.should_release == 'true'
+        uses: actions/checkout@v4
+
+      - name: Keep only the latest Qiniu installers
+        if: steps.prepare.outputs.skip != 'true' && needs.detect.outputs.should_release == 'true'
+        env:
+          VERSION: ${{ needs.detect.outputs.version }}
+          QINIU_ACCESS_KEY: ${{ secrets.QINIU_ACCESS_KEY }}
+          QINIU_SECRET_KEY: ${{ secrets.QINIU_SECRET_KEY }}
+          QINIU_BUCKET: ${{ secrets.QINIU_BUCKET }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/qiniu-clean" qiniu@7
+          NODE_PATH="$RUNNER_TEMP/qiniu-clean/node_modules" node .github/scripts/cleanup-qiniu-desktop.cjs

@@ -169,6 +169,10 @@ export function RechargePage() {
   }
 
   function openRefundModal() {
+    if (!user) {
+      toast("请登录");
+      return;
+    }
     setRefundOrderId(refundableOrders[0]?.id ?? null);
     setRefundReason("");
     setRefundContact("");
@@ -179,7 +183,7 @@ export function RechargePage() {
   async function handleRedeem() {
     if (redeeming) return;
     if (!user) {
-      toast("请先登录");
+      toast("请登录");
       return;
     }
     const code = activationCode.trim();
@@ -232,7 +236,7 @@ export function RechargePage() {
   async function handlePurchase(plan: RechargePlan) {
     if (pendingPlanId) return;
     if (!user) {
-      toast("请先登录");
+      toast("请登录");
       return;
     }
     setPendingPlanId(plan.id);
@@ -409,7 +413,7 @@ export function RechargePage() {
           </TextField>
           <Button
             className="bg-black text-white"
-            isDisabled={!user || redeeming || Boolean(pendingPlanId)}
+            isDisabled={redeeming || Boolean(pendingPlanId)}
             isPending={redeeming}
             onPress={() => void handleRedeem()}
           >
@@ -468,7 +472,7 @@ export function RechargePage() {
 
       <div className="mt-12 flex justify-center border-t border-black/6 pt-8">
         <Button
-          isDisabled={!user || refundableOrders.length === 0}
+          isDisabled={Boolean(user) && refundableOrders.length === 0}
           variant="outline"
           onPress={openRefundModal}
         >
