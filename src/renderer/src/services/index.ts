@@ -27,15 +27,13 @@ export {
 export {
   AccountRequestError,
   claimTrial,
-  createPaymentOrder,
   fetchMe,
-  fetchOrder,
   fetchPlans,
+  fetchPurchaseQrcode,
   sendUsageHeartbeat,
   startWechatLogin,
   waitWechatLogin,
   type AccountUser,
-  type PaymentOrder,
   type RechargePlan,
 } from "./account";
 export {

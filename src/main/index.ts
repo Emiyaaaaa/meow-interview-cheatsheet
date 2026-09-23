@@ -19,6 +19,7 @@ import {
   getAudioCapturePermissionStatus,
   isAudioCaptureDecided,
 } from "./audio-capture-permission";
+import type { MockInterviewOptions } from "../shared/mock-interview";
 import {
   configureCaptureExclusion,
   destroyOverlayWindow,
@@ -29,6 +30,23 @@ import {
   setOverlayDismissHandler,
   showOverlayWindow,
 } from "./overlay";
+import {
+  destroyMockInterviewWindow,
+  getMockInterviewOptions,
+  hideMockInterviewWindow,
+  isMockInterviewOpen,
+  setMockInterviewClosedHandler,
+  showMockInterviewWindow,
+} from "./mock-interview";
+import {
+  getInterviewRecord,
+  getRecordsDir,
+  listInterviewRecords,
+  pickAndSetRecordsDir,
+  saveInterviewRecord,
+} from "./interview-records";
+import type { InterviewRecord } from "../shared/interview-record";
+import { configureUpdateHandlers } from "./update";
 
 configureCaptureExclusion(app);
 
@@ -477,6 +495,58 @@ function configureOverlayHandlers() {
   });
 }
 
+function notifyMockInterviewVisibility(open: boolean) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("mock:visibility", open);
+}
+
+function configureMockInterviewHandlers() {
+  ipcMain.handle("mock:show", (_event, options: MockInterviewOptions) => {
+    showMockInterviewWindow(preloadPath(), getAppIconPath(), options ?? {});
+    notifyMockInterviewVisibility(true);
+  });
+
+  ipcMain.handle("mock:hide", () => {
+    hideMockInterviewWindow();
+  });
+
+  ipcMain.handle("mock:is-open", () => isMockInterviewOpen());
+
+  ipcMain.handle("mock:get-options", () => getMockInterviewOptions());
+
+  ipcMain.on("mock:remaining", (_event, seconds: number) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (typeof seconds !== "number" || !Number.isFinite(seconds)) return;
+    mainWindow.webContents.send("mock:remaining", seconds);
+  });
+
+  setMockInterviewClosedHandler(() => {
+    if (isMockInterviewOpen()) return;
+    notifyMockInterviewVisibility(false);
+  });
+}
+
+function configureInterviewRecordsHandlers() {
+  ipcMain.handle("interview-records:get-dir", () => getRecordsDir());
+
+  ipcMain.handle("interview-records:pick-dir", async (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    return pickAndSetRecordsDir(window);
+  });
+
+  ipcMain.handle(
+    "interview-records:save",
+    async (_event, record: InterviewRecord) => saveInterviewRecord(record),
+  );
+
+  ipcMain.handle("interview-records:list", () => listInterviewRecords());
+
+  ipcMain.handle(
+    "interview-records:get",
+    async (_event, fileName: string) => getInterviewRecord(fileName),
+  );
+}
+
 const UA_APP_NAME = "interview-cheatsheet";
 
 function applyAsciiUserAgent() {
@@ -520,6 +590,7 @@ function createWindow() {
   window.on("closed", () => {
     if (mainWindow === window) mainWindow = null;
     destroyOverlayWindow();
+    destroyMockInterviewWindow();
   });
 
   window.webContents.once("did-finish-load", () => {
@@ -562,6 +633,9 @@ if (!gotSingleInstanceLock) {
     configureSystemAudioCapture();
     configurePermissionHandlers();
     configureOverlayHandlers();
+    configureMockInterviewHandlers();
+    configureInterviewRecordsHandlers();
+    configureUpdateHandlers(() => mainWindow);
     createWindow();
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
@@ -582,4 +656,5 @@ app.on("before-quit", () => {
   void coreAudioCapture?.stop();
   coreAudioCapture = null;
   destroyOverlayWindow();
+  destroyMockInterviewWindow();
 });

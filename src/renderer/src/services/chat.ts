@@ -5,7 +5,7 @@ import type {
   ResponseInput,
 } from "openai/resources/responses/responses";
 import { getSessionToken } from "../../../shared/session";
-import { CHAT_BASE_URL, DEFAULT_CHAT_MODEL } from "./config";
+import { CHAT_BASE_URL } from "./config";
 
 const CHAT_CHECK_TIMEOUT_MS = 8_000;
 
@@ -64,7 +64,7 @@ export async function chat(
   return result;
 }
 
-export async function checkChatConnection(model = DEFAULT_CHAT_MODEL) {
+export async function checkChatConnection() {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(
     () => controller.abort(),
@@ -72,12 +72,7 @@ export async function checkChatConnection(model = DEFAULT_CHAT_MODEL) {
   );
 
   try {
-    await chat([{ role: "user", content: "hi" }], {
-      model,
-      signal: controller.signal,
-      store: false,
-      stream: false,
-    });
+    await requestHealth("/health/chat", controller.signal, "对话服务检测失败");
   } catch (error) {
     if (isChatAbortError(error)) {
       throw new ChatRequestError("对话服务检测超时", 408);
@@ -86,6 +81,50 @@ export async function checkChatConnection(model = DEFAULT_CHAT_MODEL) {
   } finally {
     window.clearTimeout(timeoutId);
   }
+}
+
+async function requestHealth(
+  path: string,
+  signal: AbortSignal,
+  fallback: string,
+) {
+  const response = await fetch(`${CHAT_BASE_URL}${path}`, { signal });
+  const text = await response.text();
+  let data: unknown = null;
+  if (text) {
+    try {
+      data = JSON.parse(text) as unknown;
+    } catch {
+      throw new ChatRequestError("服务返回了无法解析的内容", response.status);
+    }
+  }
+  if (!response.ok) {
+    throw new ChatRequestError(
+      readHealthError(data, fallback),
+      response.status,
+    );
+  }
+}
+
+function readHealthError(data: unknown, fallback: string) {
+  if (data && typeof data === "object") {
+    const record = data as {
+      error?: { message?: string } | string;
+      message?: string;
+    };
+    if (typeof record.error === "string" && record.error.trim()) {
+      return record.error;
+    }
+    if (
+      record.error &&
+      typeof record.error === "object" &&
+      record.error.message?.trim()
+    ) {
+      return record.error.message;
+    }
+    if (record.message?.trim()) return record.message;
+  }
+  return fallback;
 }
 
 function buildParams(messages: ChatMessage[], options: ChatOptions) {

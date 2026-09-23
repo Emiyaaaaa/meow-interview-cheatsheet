@@ -1,6 +1,11 @@
 @import "tailwindcss";
 @import "@heroui/styles";
 
+@theme {
+  --color-brand: #07c160;
+  --color-brand-hover: color-mix(in srgb, var(--color-brand) 90%, black);
+}
+
 :root,
 [data-theme="light"] {
   --background: oklch(0.97 0 0);

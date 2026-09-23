@@ -1,7 +1,7 @@
 {
   "name": "meow-interview-cheatsheet",
   "productName": "喵喵面试助手",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "description": "你的 AI 面试辅助桌面应用",
   "main": "./out/main/index.js",
   "type": "module",
@@ -93,6 +93,10 @@
     "win": {
       "icon": "assets/icon.png",
       "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": true,
+      "runAfterFinish": true
     },
     "protocols": [
       {

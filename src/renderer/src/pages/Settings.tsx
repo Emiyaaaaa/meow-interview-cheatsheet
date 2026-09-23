@@ -36,7 +36,7 @@ export function SettingsPage({ appName, onAppNameChange }: SettingsPageProps) {
               onChange={(event) => setInputValue(event.currentTarget.value)}
             />
             <Button
-              className="bg-black text-white"
+              className="bg-brand text-white"
               isDisabled={inputValue.trim() === appName}
               type="submit"
             >

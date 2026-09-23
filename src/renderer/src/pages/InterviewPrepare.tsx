@@ -40,10 +40,12 @@ import {
   waitForFileReady,
 } from "../services";
 
+export type InterviewPrepareVariant = "assistant" | "mock";
+
 const INTERVIEW_DIRECTIONS = [
   { id: "frontend", name: "前端开发" },
   { id: "frontend-react", name: "React 开发" },
-  { id: "frontend-react", name: "Vue 开发" },
+  { id: "frontend-vue", name: "Vue 开发" },
   { id: "frontend-mini-program", name: "小程序开发" },
   { id: "backend", name: "后端开发" },
   { id: "fullstack", name: "全栈开发" },
@@ -76,7 +78,7 @@ function PermissionStatus({
 }) {
   if (granted) {
     return (
-      <div className="flex items-center gap-2 text-xs text-emerald-600">
+      <div className="flex items-center gap-2 text-xs text-brand">
         <Check className="size-3" />
         {grantedLabel}
       </div>
@@ -150,7 +152,7 @@ function ApiCheckDetailList({ details }: { details: ApiCheckDetail[] }) {
         return (
           <p key={item.label} className="text-sm">
             <span className="font-medium">{item.label}</span>
-            <span className={failed ? "text-red-500" : "text-emerald-600"}>
+            <span className={failed ? "text-red-500" : "text-brand"}>
               {failed ? ` 失败${error ? `：${error}` : ""}` : " 成功"}
             </span>
           </p>
@@ -180,7 +182,7 @@ function ApiCheckStatus({
   return (
     <div className="flex items-center gap-2">
       {state === "ok" ? (
-        <div className="flex items-center gap-2 text-xs text-emerald-600">
+        <div className="flex items-center gap-2 text-xs text-brand">
           <Check className="size-3" />
           正常
         </div>
@@ -229,8 +231,8 @@ function PrepStepRow({
         </>
       ) : state === "ok" ? (
         <>
-          <Check className="size-3.5 shrink-0 text-emerald-600" />
-          <span className="truncate text-emerald-600">{statusText}</span>
+          <Check className="size-3.5 shrink-0 text-brand" />
+          <span className="truncate text-brand">{statusText}</span>
         </>
       ) : state === "warning" ? (
         <>
@@ -265,7 +267,12 @@ function PrepStepRow({
   );
 }
 
-export function InterviewPreparePage() {
+export function InterviewPreparePage({
+  variant = "assistant",
+}: {
+  variant?: InterviewPrepareVariant;
+}) {
+  const isMock = variant === "mock";
   const {
     allPermissionsGranted,
     audioCapabilities,
@@ -277,6 +284,7 @@ export function InterviewPreparePage() {
     isLegacyMacCapture,
     isMac,
     isMacAudioOnly,
+    isStarted,
     isStarting,
     isUnsupported,
     microphonePermissionsGranted,
@@ -300,12 +308,13 @@ export function InterviewPreparePage() {
     null,
   );
   const [prepOpen, setPrepOpen] = useState(false);
+  const [isMockStarting, setIsMockStarting] = useState(false);
   const [resumeStep, setResumeStep] = useState<PrepStepState>("idle");
   const [resumeStatusText, setResumeStatusText] = useState("");
   const [resumeFileId, setResumeFileId] = useState("");
   const apiCheckDetails: ApiCheckDetail[] = [
     { label: "实时语音识别接口", result: asrCheckResult },
-    { label: "回答生成接口", result: chatCheckResult },
+    { label: isMock ? "面试官提问接口" : "回答生成接口", result: chatCheckResult },
   ];
   const apiPrepState: PrepStepState =
     apiCheckState === "ok"
@@ -340,7 +349,9 @@ export function InterviewPreparePage() {
     setResumeFileId("");
     if (!resume) {
       setResumeStep("warning");
-      setResumeStatusText("未选择，可能影响回答质量");
+      setResumeStatusText(
+        isMock ? "未选择，可能影响提问质量" : "未选择，可能影响回答质量",
+      );
     } else {
       setResumeStep("loading");
       setResumeStatusText("上传中");
@@ -350,7 +361,9 @@ export function InterviewPreparePage() {
       if (!resume) {
         if (cancelled) return;
         setResumeStep("warning");
-        setResumeStatusText("未选择，可能影响回答质量");
+        setResumeStatusText(
+          isMock ? "未选择，可能影响提问质量" : "未选择，可能影响回答质量",
+        );
         return;
       }
 
@@ -396,7 +409,7 @@ export function InterviewPreparePage() {
       cancelled = true;
       controller.abort();
     };
-  }, [prepOpen, resume]);
+  }, [isMock, prepOpen, resume]);
 
   async function handlePickResume() {
     setIsPickingResume(true);
@@ -413,12 +426,17 @@ export function InterviewPreparePage() {
     }
   }
 
+  const starting = isMock ? isMockStarting : isStarting;
+
   function handlePrepOpenChange(open: boolean) {
-    if (isStarting) return;
+    if (starting) return;
     setPrepOpen(open);
   }
 
-  const canStart = remainingSeconds > 0 && allPermissionsGranted;
+  const permissionsReady = isMock
+    ? microphonePermissionsGranted
+    : allPermissionsGranted;
+  const canStart = remainingSeconds > 0 && permissionsReady;
   const lowQuota = remainingSeconds > 0 && remainingSeconds < 3600;
   const resumeReady = resumeStep === "ok" || resumeStep === "warning";
 
@@ -435,10 +453,32 @@ export function InterviewPreparePage() {
 
   async function handleStartFromPrep() {
     if (!canStart || !resumeReady || apiCheckState !== "ok") return;
-    await startInterview({
+    const options = {
       interviewDirection: interviewDirection.trim() || undefined,
       resumeFileId: resumeFileId || undefined,
-    });
+    };
+    if (!isMock) {
+      await startInterview(options);
+      return;
+    }
+
+    if (isStarted) {
+      toast("请先结束当前面试");
+      return;
+    }
+    setIsMockStarting(true);
+    try {
+      if (await window.desktop.isMockInterviewOpen()) {
+        toast("模拟面试进行中");
+        return;
+      }
+      await window.desktop.showMockInterview(options);
+      setPrepOpen(false);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "无法打开模拟面试");
+    } finally {
+      setIsMockStarting(false);
+    }
   }
 
   return (
@@ -455,7 +495,9 @@ export function InterviewPreparePage() {
               <p className="flex items-center gap-1 text-sm">
                 麦克风权限
                 <HelpTip title="麦克风权限">
-                  采集麦克风输入作为面试官输出，适用于双设备场景
+                  {isMock
+                    ? "采集你的口头回答，用于模拟面试中的实时转写"
+                    : "采集麦克风输入作为面试官输出，适用于双设备场景"}
                   {isMac ? "；请在系统设置中允许本应用访问麦克风" : ""}
                 </HelpTip>
               </p>
@@ -469,6 +511,7 @@ export function InterviewPreparePage() {
               />
             </div>
 
+            {isMock ? null : (
             <div className="flex items-center gap-2">
               {isLegacyMacCapture ? (
                 <MonitorUp className="size-4" />
@@ -509,13 +552,16 @@ export function InterviewPreparePage() {
                 onAuthorize={() => void authorizeSystemCapture()}
               />
             </div>
+            )}
 
             <div className="flex items-center gap-2">
               <AudioLines className="size-4" />
               <p className="flex items-center gap-1 text-sm">
                 接口连通性检查
                 <HelpTip title="接口连通性">
-                  并行检测语音识别与回答生成服务是否可连接
+                  {isMock
+                    ? "并行检测语音识别与面试官提问服务是否可连接"
+                    : "并行检测语音识别与回答生成服务是否可连接"}
                 </HelpTip>
               </p>
               <div className="flex-1" />
@@ -529,6 +575,7 @@ export function InterviewPreparePage() {
         </div>
       </Card>
 
+      {isMock ? null : (
       <Card>
         <RadioGroup
           className="p-2"
@@ -555,8 +602,8 @@ export function InterviewPreparePage() {
               },
             ].map((option) => (
               <Radio className={"mt-0"} key={option.value} value={option.value}>
-                <Radio.Content className="items-start h-full group relative flex w-full flex-col gap-6 rounded-xl border border-transparent px-5 py-4 transition-all data-[selected=true]:border-emerald-600/70 data-[selected=true]:bg-emerald-600/5 data-[focus-visible=true]:border-accent data-[focus-visible=true]:bg-accent/10">
-                  <Radio.Control className="absolute inset-e-4 top-3 size-5 rounded-full border border-border bg-default shadow-none group-data-[pressed=true]:scale-95 group-data-[selected=true]:border-transparent group-data-[selected=true]:bg-emerald-500">
+                <Radio.Content className="items-start h-full group relative flex w-full flex-col gap-6 rounded-xl border border-transparent px-5 py-4 transition-all data-[selected=true]:border-brand/70 data-[selected=true]:bg-brand/5 data-[focus-visible=true]:border-accent data-[focus-visible=true]:bg-accent/10">
+                  <Radio.Control className="absolute inset-e-4 top-3 size-5 rounded-full border border-border bg-default shadow-none group-data-[pressed=true]:scale-95 group-data-[selected=true]:border-transparent group-data-[selected=true]:bg-brand">
                     <Radio.Indicator className="before:rounded-full before:bg-default group-data-[selected=true]:before:scale-50 group-data-[selected=true]:group-data-[pressed=true]:before:scale-[0.57]" />
                   </Radio.Control>
                   <div className="flex flex-col gap-1 pr-8">
@@ -571,6 +618,7 @@ export function InterviewPreparePage() {
           </div>
         </RadioGroup>
       </Card>
+      )}
       <Card>
         <div className="p-2">
           <div className="flex flex-col gap-1">
@@ -584,7 +632,9 @@ export function InterviewPreparePage() {
                 选择简历
                 <HelpTip title="选择简历">
                   选择你的简历文件，开始面试时再上传并解析，帮助 AI
-                  更准确地理解你的背景和技能
+                  {isMock
+                    ? " 更准确地提出贴近你经历的面试问题"
+                    : " 更准确地理解你的背景和技能"}
                 </HelpTip>
               </p>
               <div className="flex-1" />
@@ -622,7 +672,8 @@ export function InterviewPreparePage() {
               <p className="flex items-center gap-1 text-sm">
                 面试岗位
                 <HelpTip title="面试方向">
-                  选择或输入本次面试的岗位岗位，AI 将据此调整回答重点
+                  选择或输入本次面试的岗位，AI 将据此调整
+                  {isMock ? "提问重点" : "回答重点"}
                 </HelpTip>
               </p>
               <div className="flex-1" />
@@ -660,15 +711,15 @@ export function InterviewPreparePage() {
       </Card>
       <div className="flex flex-col items-center justify-center py-2 text-center">
         <Button
-          className="mt-4 h-12 min-w-52 bg-emerald-600/20 px-8 text-base text-emerald-700"
+          className="mt-4 h-12 min-w-52 bg-brand px-8 text-base text-white hover:bg-brand-hover"
           isDisabled={Boolean(user) && !canStart}
           size="lg"
           onPress={handleOpenPrep}
         >
           <Play size="sm" />
-          开始面试
+          {isMock ? "开始模拟面试" : "开始面试"}
         </Button>
-        {IS_DEBUG ? (
+        {IS_DEBUG && !isMock ? (
           <Button
             className="mt-2 h-8 min-w-52 text-xs text-muted"
             size="sm"
@@ -683,26 +734,28 @@ export function InterviewPreparePage() {
             打开面试面板
           </Button>
         ) : null}
-        {transcriptionError ? (
+        {transcriptionError && !isMock ? (
           <p className="mt-3 text-sm text-red-600">{transcriptionError}</p>
         ) : user && remainingSeconds <= 0 ? (
           <p className="mt-3 text-xs text-muted">
             时长不足，请先充值或领取体验卡
           </p>
-        ) : user && !allPermissionsGranted ? (
-          <p className="mt-3 text-xs text-muted">请先完成全部权限授权</p>
+        ) : user && !permissionsReady ? (
+          <p className="mt-3 text-xs text-muted">
+            {isMock ? "请先完成麦克风授权" : "请先完成全部权限授权"}
+          </p>
         ) : null}
       </div>
 
       <Modal.Backdrop
-        isDismissable={!isStarting}
-        isKeyboardDismissDisabled={isStarting}
+        isDismissable={!starting}
+        isKeyboardDismissDisabled={starting}
         isOpen={prepOpen}
         onOpenChange={handlePrepOpenChange}
       >
         <Modal.Container size="sm">
           <Modal.Dialog>
-            {isStarting ? null : <Modal.CloseTrigger />}
+            {starting ? null : <Modal.CloseTrigger />}
             <Modal.Header>
               <Modal.Heading>准备工作</Modal.Heading>
             </Modal.Header>
@@ -728,7 +781,7 @@ export function InterviewPreparePage() {
               />
             </Modal.Body>
             <Modal.Footer className="flex-col gap-3">
-              {transcriptionError ? (
+              {transcriptionError && !isMock ? (
                 <div className="flex w-full items-start gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-left text-sm text-red-600">
                   <CircleAlert className="mt-0.5 size-4 shrink-0" />
                   <span className="min-w-0 wrap-break-word">
@@ -737,15 +790,19 @@ export function InterviewPreparePage() {
                 </div>
               ) : null}
               <Button
-                className="w-full bg-emerald-600/20 text-emerald-700"
+                className="w-full bg-brand text-white hover:bg-brand-hover"
                 isDisabled={!resumeReady || apiCheckState !== "ok"}
-                isPending={isStarting}
+                isPending={starting}
                 onPress={() => void handleStartFromPrep()}
               >
                 {({ isPending }) => (
                   <>
                     {isPending ? <Spinner size="sm" /> : <Play size="sm" />}
-                    {isPending ? "连接服务中…" : "开始面试"}
+                    {isPending
+                      ? "连接服务中…"
+                      : isMock
+                        ? "开始模拟面试"
+                        : "开始面试"}
                   </>
                 )}
               </Button>

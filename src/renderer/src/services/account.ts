@@ -10,9 +10,13 @@ export interface AccountUser {
   id: string;
   nickname: string | null;
   avatar_url: string | null;
+  phone: string | null;
+  wechat_bound: boolean;
   remaining_seconds: number;
   trial_claimed: boolean;
 }
+
+export type PaymentChannel = "mp_qr" | "epay";
 
 export interface RechargePlan {
   id: string;
@@ -23,14 +27,6 @@ export interface RechargePlan {
   trial: boolean;
 }
 
-export interface PaymentOrder {
-  id: string;
-  out_trade_no: string;
-  status: string;
-  checkout_url: string;
-  amount_total: number;
-  minutes: number;
-}
 
 export class AccountRequestError extends Error {
   readonly status: number;
@@ -90,10 +86,17 @@ function readErrorMessage(data: unknown, status: number) {
   return `请求失败 (${status})`;
 }
 
+/** 返回一张 scene 带登录票据的小程序码，用户用微信扫码后在小程序里确认登录。 */
+export async function fetchWechatQrLoginEnabled() {
+  const result = await request<{ wechat_qr_login: boolean }>("/auth/login-options");
+  return result.wechat_qr_login !== false;
+}
+
 export async function startWechatLogin() {
-  return request<{ state2: string; start_url: string }>("/auth/start", {
-    method: "POST",
-  });
+  return request<{ state2: string; qr_image: string; expires_in: number }>(
+    "/auth/start",
+    { method: "POST" },
+  );
 }
 
 export async function waitWechatLogin(state2: string) {
@@ -160,8 +163,51 @@ export async function claimTrial() {
   return result.user;
 }
 
-export async function createPaymentOrder(planId: string) {
-  return request<PaymentOrder>("/orders", {
+export async function fetchPaymentChannel() {
+  const result = await request<{ payment_channel: PaymentChannel }>(
+    "/config/payment-channel",
+  );
+  return result.payment_channel === "epay" ? "epay" : "mp_qr";
+}
+
+export async function sendPhoneLoginCode(phone: string) {
+  return request<{ ok: boolean; retry_after: number }>("/auth/phone/login/code", {
+    method: "POST",
+    body: JSON.stringify({ phone }),
+  });
+}
+
+export async function loginWithPhone(phone: string, code: string) {
+  return request<{ token: string; user: AccountUser }>("/auth/phone/login", {
+    method: "POST",
+    body: JSON.stringify({ phone, code }),
+  });
+}
+
+export async function sendPhoneCode(phone: string) {
+  return request<{ ok: boolean; retry_after: number }>("/auth/phone/code", {
+    method: "POST",
+    body: JSON.stringify({ phone }),
+  });
+}
+
+export async function bindPhone(phone: string, code: string) {
+  const result = await request<{ user: AccountUser }>("/auth/phone/bind", {
+    method: "POST",
+    body: JSON.stringify({ phone, code }),
+  });
+  return result.user;
+}
+
+export async function createEpayOrder(planId: string) {
+  return request<{
+    id: string;
+    out_trade_no: string;
+    status: string;
+    checkout_url: string;
+    amount_total: number;
+    minutes: number;
+  }>("/orders/epay", {
     method: "POST",
     body: JSON.stringify({ plan_id: planId }),
   });
@@ -172,6 +218,12 @@ export async function fetchOrder(orderId: string) {
     `/orders/${encodeURIComponent(orderId)}`,
   );
   return result.order;
+}
+
+/** 购买入口的小程序码，桌面端只做引导，实际支付在小程序内完成。 */
+export async function fetchPurchaseQrcode() {
+  const result = await request<{ qr_image: string }>("/mp/purchase-qrcode");
+  return result.qr_image;
 }
 
 export interface AccountOrder {
@@ -185,6 +237,7 @@ export interface AccountOrder {
   paid_at: string | null;
   order_type?: "payment" | "activation_code";
   activation_code?: string | null;
+  pay_platform?: "wechat" | "ios" | null;
 }
 
 export async function fetchOrders() {

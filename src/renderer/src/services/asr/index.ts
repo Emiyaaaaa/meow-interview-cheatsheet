@@ -1,7 +1,8 @@
 import { ASR_PROVIDER, type AsrStartOptions } from "../../../../shared/asr";
+import { AI_SERVICE_URL } from "../config";
 import { ArkAsrSession } from "./arkAsr";
 import { FunAsrSession } from "./funAsr";
-import type { AsrSession, AsrSessionCallbacks } from "./types";
+import { ASR_CHECK_TIMEOUT_MS, type AsrSession, type AsrSessionCallbacks } from "./types";
 
 export {
   ASR_MODEL,
@@ -55,14 +56,58 @@ export class AsrClient {
 }
 
 export async function checkAsrConnection() {
-  const client = new AsrClient({
-    onError: () => undefined,
-    onResult: () => undefined,
-  });
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(
+    () => controller.abort(),
+    ASR_CHECK_TIMEOUT_MS,
+  );
 
   try {
-    await client.start();
+    const response = await fetch(`${AI_SERVICE_URL}/health/asr`, {
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    let data: unknown = null;
+    if (text) {
+      try {
+        data = JSON.parse(text) as unknown;
+      } catch {
+        throw new Error("服务返回了无法解析的内容");
+      }
+    }
+    if (!response.ok) {
+      throw new Error(readHealthError(data, "语音识别服务检测失败"));
+    }
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.name === "AbortError" || /abort/i.test(error.message))
+    ) {
+      throw new Error("语音识别服务检测超时");
+    }
+    throw error;
   } finally {
-    client.close();
+    window.clearTimeout(timeoutId);
   }
+}
+
+function readHealthError(data: unknown, fallback: string) {
+  if (data && typeof data === "object") {
+    const record = data as {
+      error?: { message?: string } | string;
+      message?: string;
+    };
+    if (typeof record.error === "string" && record.error.trim()) {
+      return record.error;
+    }
+    if (
+      record.error &&
+      typeof record.error === "object" &&
+      record.error.message?.trim()
+    ) {
+      return record.error.message;
+    }
+    if (record.message?.trim()) return record.message;
+  }
+  return fallback;
 }

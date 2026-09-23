@@ -12,6 +12,12 @@ import { chat, isChatAbortError } from "../services/chat";
 import { DEFAULT_CHAT_MODEL } from "../services/config";
 import { deleteResumeFile } from "../services/files";
 import { sendUsageHeartbeat } from "../services/account";
+import {
+  beginInterviewSession,
+  buildInterviewRecord,
+  createThrottledRecordSaver,
+  type ActiveInterviewSession,
+} from "../services/interview-records";
 import { SystemAudioTranscription } from "../transcription";
 import { useAuth } from "./AuthContext";
 
@@ -105,6 +111,10 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
   const lastFinalTranscriptRef = useRef("");
   const chatControllersRef = useRef(new Map<string, AbortController>());
   const chatGenerationRef = useRef(0);
+  const recordSessionRef = useRef<ActiveInterviewSession | null>(null);
+  const recordSaverRef = useRef(createThrottledRecordSaver());
+  const qaItemsRef = useRef<InterviewQaItem[]>([]);
+  const elapsedSecondsRef = useRef(0);
 
   const abortPendingChats = useCallback(() => {
     for (const controller of chatControllersRef.current.values()) {
@@ -239,6 +249,14 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
   }, [abortPendingChats, requestAnswer]);
 
   useEffect(() => {
+    qaItemsRef.current = qaItems;
+  }, [qaItems]);
+
+  useEffect(() => {
+    elapsedSecondsRef.current = elapsedSeconds;
+  }, [elapsedSeconds]);
+
+  useEffect(() => {
     if (!isStarted) return;
     const timer = window.setInterval(
       () => setElapsedSeconds((seconds) => seconds + 1),
@@ -246,6 +264,26 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     );
     return () => window.clearInterval(timer);
   }, [isStarted]);
+
+  useEffect(() => {
+    if (!isStarted) return;
+    const session = recordSessionRef.current;
+    if (!session) return;
+    recordSaverRef.current.schedule(
+      buildInterviewRecord({
+        session,
+        durationSeconds: elapsedSeconds,
+        endedAt: null,
+        items: qaItems.map((item) => ({
+          id: item.id,
+          question: item.question,
+          answer: item.answer,
+          status: item.status,
+          error: item.error,
+        })),
+      }),
+    );
+  }, [elapsedSeconds, isStarted, qaItems]);
 
   useEffect(() => {
     let active = true;
@@ -404,6 +442,8 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
       setQaItems([]);
       setInterimTranscript("");
       setElapsedSeconds(0);
+      recordSaverRef.current.reset();
+      recordSessionRef.current = null;
     },
     [abortPendingChats],
   );
@@ -415,6 +455,10 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
     }) => {
       const transcription = transcriptionRef.current;
       if (!transcription || isStarting || isStarted) return;
+      if (await window.desktop.isMockInterviewOpen()) {
+        setTranscriptionError("请先结束模拟面试");
+        return;
+      }
 
       setIsStarting(true);
       resetInterviewSession(options);
@@ -422,6 +466,10 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
         await transcription.start(audioCapabilities.mode, captureSource, {
           interviewDirection: options?.interviewDirection,
         });
+        recordSessionRef.current = beginInterviewSession(
+          "assistant",
+          options?.interviewDirection,
+        );
         setIsStarted(true);
         try {
           await window.desktop.showOverlay();
@@ -431,6 +479,7 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         resumeFileIdRef.current = "";
         transcription.stop();
+        recordSessionRef.current = null;
         setTranscriptionError(
           error instanceof Error
             ? error.message
@@ -453,12 +502,22 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
 
   const startInterviewDebug = useCallback(
     (options?: { interviewDirection?: string }) => {
-      if (isStarted || isStarting) return;
-      resetInterviewSession(options);
-      setIsStarted(true);
-      void window.desktop.showOverlay().catch((error: unknown) => {
-        console.error("无法打开面试悬浮窗", error);
-      });
+      void (async () => {
+        if (isStarted || isStarting) return;
+        if (await window.desktop.isMockInterviewOpen()) {
+          setTranscriptionError("请先结束模拟面试");
+          return;
+        }
+        resetInterviewSession(options);
+        recordSessionRef.current = beginInterviewSession(
+          "assistant",
+          options?.interviewDirection,
+        );
+        setIsStarted(true);
+        void window.desktop.showOverlay().catch((error: unknown) => {
+          console.error("无法打开面试悬浮窗", error);
+        });
+      })();
     },
     [isStarted, isStarting, resetInterviewSession],
   );
@@ -472,6 +531,31 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
       console.error("无法关闭面试悬浮窗", error);
     });
     previousResponseIdRef.current = "";
+
+    const session = recordSessionRef.current;
+    if (session) {
+      const endedAt = Date.now();
+      const durationSeconds = Math.max(
+        elapsedSecondsRef.current,
+        Math.round((endedAt - session.startedAt) / 1000),
+      );
+      void recordSaverRef.current.finalize(
+        buildInterviewRecord({
+          session,
+          durationSeconds,
+          endedAt,
+          items: qaItemsRef.current.map((item) => ({
+            id: item.id,
+            question: item.question,
+            answer: item.answer,
+            status: item.status,
+            error: item.error,
+          })),
+        }),
+      );
+      recordSessionRef.current = null;
+    }
+
     const fileId = resumeFileIdRef.current;
     resumeFileIdRef.current = "";
     if (!fileId) return;

@@ -16,15 +16,17 @@ import {
   toast,
   useOverlayState,
 } from "@heroui/react";
-import { QRCodeSVG } from "qrcode.react";
 import { Sparkles } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { useAuth } from "../context/AuthContext";
 import {
   applyRefund,
   claimTrial,
-  createPaymentOrder,
+  createEpayOrder,
   fetchOrder,
   fetchOrders,
+  fetchPaymentChannel,
+  fetchPurchaseQrcode,
   getCachedPlans,
   prefetchPlans,
   redeemActivationCode,
@@ -85,8 +87,14 @@ function orderStatusColor(order: AccountOrder) {
   return "default" as const;
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 export function RechargePage() {
-  const { user, setUser, refreshUser } = useAuth();
+  const { user, setUser, refreshUser, requestPhoneBind } = useAuth();
   const [plans, setPlans] = useState<RechargePlan[]>(
     () => getCachedPlans() ?? [],
   );
@@ -95,8 +103,8 @@ export function RechargePage() {
   const [actionError, setActionError] = useState("");
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
   const [statusText, setStatusText] = useState("");
-  const [qrPayload, setQrPayload] = useState<string | null>(null);
-  const [qrPlanTitle, setQrPlanTitle] = useState("");
+  const [purchaseQr, setPurchaseQr] = useState<string | null>(null);
+  const [purchaseQrError, setPurchaseQrError] = useState("");
   const [refundOrderId, setRefundOrderId] = useState<Key | null>(null);
   const [refundReason, setRefundReason] = useState("");
   const [refundContact, setRefundContact] = useState("");
@@ -104,18 +112,13 @@ export function RechargePage() {
   const [refundSubmitting, setRefundSubmitting] = useState(false);
   const [activationCode, setActivationCode] = useState("");
   const [redeeming, setRedeeming] = useState(false);
+  const [epayQr, setEpayQr] = useState<string | null>(null);
+  const [epayPlanTitle, setEpayPlanTitle] = useState("");
   const historyModal = useOverlayState();
   const refundModal = useOverlayState();
-  const activeRef = useRef(true);
+  const purchaseModal = useOverlayState();
   const pollTokenRef = useRef(0);
-
-  const historyOrders = orders.filter((order) =>
-    HISTORY_STATUSES.has(order.status),
-  );
-  const refundableOrders = orders.filter(
-    (order) =>
-      order.status === "paid" && orderTypeOf(order) !== "activation_code",
-  );
+  const activeRef = useRef(true);
 
   useEffect(() => {
     activeRef.current = true;
@@ -124,6 +127,17 @@ export function RechargePage() {
       pollTokenRef.current += 1;
     };
   }, []);
+
+  const historyOrders = orders.filter((order) =>
+    HISTORY_STATUSES.has(order.status),
+  );
+  // Apple 支付的订单只能由用户向 Apple 申请退款，这里不提供入口。
+  const refundableOrders = orders.filter(
+    (order) =>
+      order.status === "paid" &&
+      orderTypeOf(order) !== "activation_code" &&
+      order.pay_platform !== "ios",
+  );
 
   useEffect(() => {
     let active = true;
@@ -171,12 +185,28 @@ export function RechargePage() {
     }
   }
 
-  function cancelPayment() {
-    pollTokenRef.current += 1;
-    setQrPayload(null);
-    setQrPlanTitle("");
-    setPendingPlanId(null);
-    setStatusText("已取消支付");
+  async function openPurchaseModal() {
+    setActionError("");
+    setStatusText("");
+    purchaseModal.open();
+    if (purchaseQr) return;
+    try {
+      setPurchaseQrError("");
+      setPurchaseQr(await fetchPurchaseQrcode());
+    } catch (error) {
+      setPurchaseQrError(
+        error instanceof Error ? error.message : "购买码获取失败",
+      );
+    }
+  }
+
+  /** 支付发生在手机上，桌面端只能在用户关掉引导后主动同步一次余额。 */
+  function handlePurchaseOpenChange(open: boolean) {
+    purchaseModal.setOpen(open);
+    if (!open && user) {
+      void refreshUser();
+      void reloadOrders();
+    }
   }
 
   function openRefundModal() {
@@ -246,64 +276,100 @@ export function RechargePage() {
     }
   }
 
+  function cancelEpay() {
+    pollTokenRef.current += 1;
+    setEpayQr(null);
+    setEpayPlanTitle("");
+    setPendingPlanId(null);
+  }
+
+  async function startEpay(plan: RechargePlan) {
+    const order = await createEpayOrder(plan.id);
+    if (!order.checkout_url) {
+      throw new Error("未获取到支付二维码");
+    }
+
+    const pollToken = pollTokenRef.current + 1;
+    pollTokenRef.current = pollToken;
+    setEpayQr(order.checkout_url);
+    setEpayPlanTitle(plan.title);
+    setStatusText("请使用微信扫码支付");
+
+    const startedAt = Date.now();
+    while (
+      activeRef.current &&
+      pollTokenRef.current === pollToken &&
+      Date.now() - startedAt < 15 * 60 * 1000
+    ) {
+      await sleep(2000);
+      if (!activeRef.current || pollTokenRef.current !== pollToken) return;
+      const latest = await fetchOrder(order.id);
+      if (!activeRef.current || pollTokenRef.current !== pollToken) return;
+      if (latest.status === "paid") {
+        await refreshUser();
+        setEpayQr(null);
+        setEpayPlanTitle("");
+        setStatusText("支付成功，时长已到账");
+        await reloadOrders();
+        return;
+      }
+      if (latest.status === "failed" || latest.status === "closed") {
+        setEpayQr(null);
+        setEpayPlanTitle("");
+        throw new Error("支付未完成");
+      }
+    }
+    if (pollTokenRef.current !== pollToken) return;
+    setEpayQr(null);
+    setEpayPlanTitle("");
+    throw new Error("等待支付超时，请稍后在订单中确认");
+  }
+
   async function handlePurchase(plan: RechargePlan) {
     if (pendingPlanId) return;
     if (!user) {
       toast("请登录");
       return;
     }
+    if (!plan.trial) {
+      setPendingPlanId(plan.id);
+      setActionError("");
+      setStatusText("");
+      try {
+        if (!user.phone) {
+          const bound = await requestPhoneBind();
+          if (!bound) return;
+        }
+        if (user.wechat_bound === false) {
+          setEpayQr(null);
+          await startEpay(plan);
+          return;
+        }
+        const channel = await fetchPaymentChannel();
+        if (channel !== "epay") {
+          void openPurchaseModal();
+          return;
+        }
+        setEpayQr(null);
+        await startEpay(plan);
+      } catch (error) {
+        setEpayQr(null);
+        setEpayPlanTitle("");
+        setActionError(error instanceof Error ? error.message : "开通失败");
+      } finally {
+        setPendingPlanId(null);
+      }
+      return;
+    }
+
     setPendingPlanId(plan.id);
     setActionError("");
     setStatusText("");
-    setQrPayload(null);
     try {
-      if (plan.trial) {
-        const next = await claimTrial();
-        setUser(next);
-        setStatusText("体验时长已到账");
-        setPendingPlanId(null);
-        return;
-      }
-
-      const order = await createPaymentOrder(plan.id);
-      if (!order.checkout_url) {
-        throw new Error("未获取到支付二维码");
-      }
-
-      const pollToken = pollTokenRef.current + 1;
-      pollTokenRef.current = pollToken;
-      setQrPayload(order.checkout_url);
-      setQrPlanTitle(plan.title);
-      setStatusText("请使用微信扫码支付");
-
-      const startedAt = Date.now();
-      while (
-        activeRef.current &&
-        pollTokenRef.current === pollToken &&
-        Date.now() - startedAt < 15 * 60 * 1000
-      ) {
-        await sleep(2000);
-        if (!activeRef.current || pollTokenRef.current !== pollToken) return;
-        const latest = await fetchOrder(order.id);
-        if (!activeRef.current || pollTokenRef.current !== pollToken) return;
-        if (latest.status === "paid") {
-          await refreshUser();
-          setQrPayload(null);
-          setQrPlanTitle("");
-          setStatusText("支付成功，时长已到账");
-          await reloadOrders();
-          return;
-        }
-        if (latest.status === "failed" || latest.status === "closed") {
-          throw new Error("支付未完成");
-        }
-      }
-      if (pollTokenRef.current !== pollToken) return;
-      throw new Error("等待支付超时，请稍后在订单中确认");
+      setUser(await claimTrial());
+      setStatusText("体验时长已到账");
     } catch (error) {
-      setQrPayload(null);
-      setQrPlanTitle("");
-      setActionError(error instanceof Error ? error.message : "开通失败");
+      setActionError(error instanceof Error ? error.message : "领取失败");
     } finally {
       setPendingPlanId(null);
     }
@@ -319,20 +385,20 @@ export function RechargePage() {
         <p className="mt-4 text-sm text-red-600">{actionError}</p>
       ) : null}
       {statusText ? (
-        <p className="mt-4 text-sm text-emerald-600">{statusText}</p>
+        <p className="mt-4 text-sm text-brand">{statusText}</p>
       ) : null}
 
-      {qrPayload ? (
+      {epayQr ? (
         <Card className="mt-6 max-w-sm rounded-lg border border-black/10 p-5">
           <div className="flex flex-col items-center gap-3">
             <Label className="text-base font-semibold">
-              {qrPlanTitle || "微信支付"}
+              {epayPlanTitle || "微信支付"}
             </Label>
             <Description>请使用微信扫一扫完成支付</Description>
             <div className="rounded-md bg-white p-3">
-              <QRCodeSVG value={qrPayload} size={200} level="M" includeMargin />
+              <QRCodeSVG value={epayQr} size={200} level="M" includeMargin />
             </div>
-            <Button variant="outline" onPress={cancelPayment}>
+            <Button variant="outline" onPress={cancelEpay}>
               取消支付
             </Button>
           </div>
@@ -381,7 +447,7 @@ export function RechargePage() {
                   </span>
                 </div>
                 <Button
-                  className="bg-emerald-600/20 text-emerald-700"
+                  className="bg-brand/20 text-brand"
                   isDisabled={Boolean(claimedTrial) || Boolean(pendingPlanId)}
                   isPending={pending}
                   onPress={() => void handlePurchase(plan)}
@@ -389,10 +455,10 @@ export function RechargePage() {
                   {claimedTrial
                     ? "已领取"
                     : plan.trial
-                      ? "领取"
-                      : pending
-                        ? "支付中"
-                        : "开通"}
+                      ? pending
+                        ? "领取中"
+                        : "领取"
+                      : "购买"}
                 </Button>
               </div>
             </Card>
@@ -422,7 +488,7 @@ export function RechargePage() {
             />
           </TextField>
           <Button
-            className="bg-black text-white"
+            className="bg-brand text-white"
             isDisabled={redeeming || Boolean(pendingPlanId)}
             isPending={redeeming}
             onPress={() => void handleRedeem()}
@@ -444,6 +510,46 @@ export function RechargePage() {
           申请退款
         </Button>
       </div>
+
+      <Modal.Backdrop
+        isOpen={purchaseModal.isOpen}
+        onOpenChange={handlePurchaseOpenChange}
+      >
+        <Modal.Container size="sm">
+          <Modal.Dialog>
+            <Modal.CloseTrigger />
+            <Modal.Header>
+              <Modal.Heading>微信扫码购买</Modal.Heading>
+            </Modal.Header>
+            <Modal.Body className="items-center gap-4">
+              <div className="flex size-50 items-center justify-center rounded-md border border-black/10 bg-white">
+                {purchaseQr ? (
+                  <img
+                    alt="微信扫码购买时长"
+                    className="size-full"
+                    src={purchaseQr}
+                  />
+                ) : (
+                  <span className="text-sm text-muted">
+                    {purchaseQrError ? "购买码获取失败" : "正在生成购买码…"}
+                  </span>
+                )}
+              </div>
+              <Description>
+                用微信扫描上方小程序码，在小程序内选择套餐完成支付。支付成功后时长会自动到账，关闭本窗口即可刷新。
+              </Description>
+              {purchaseQrError ? (
+                <p className="text-sm text-red-600">{purchaseQrError}</p>
+              ) : null}
+            </Modal.Body>
+            <Modal.Footer>
+              <Button slot="close" className="bg-brand text-white">
+                我已完成支付
+              </Button>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
 
       <Modal.Backdrop
         isOpen={historyModal.isOpen}
@@ -589,7 +695,7 @@ export function RechargePage() {
                 取消
               </Button>
               <Button
-                className="bg-black text-white"
+                className="bg-brand text-white"
                 isDisabled={refundSubmitting}
                 isPending={refundSubmitting}
                 onPress={() => void handleRefund()}
@@ -602,10 +708,4 @@ export function RechargePage() {
       </Modal.Backdrop>
     </div>
   );
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
 }

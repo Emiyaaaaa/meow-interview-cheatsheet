@@ -81,7 +81,7 @@ export function QAPanel({
     >
       <div className="flex items-center justify-between border-b border-black/6 px-6 py-4">
         <span className="flex items-center gap-2 text-xs text-muted">
-          <span className="size-2 rounded-full animate-pulse bg-emerald-500" />
+          <span className="size-2 rounded-full animate-pulse bg-brand" />
           正在识别
         </span>
       </div>

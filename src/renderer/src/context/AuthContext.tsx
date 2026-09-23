@@ -22,42 +22,63 @@ interface AuthContextValue {
   isReady: boolean;
   isLoggingIn: boolean;
   loginError: string | null;
+  loginQrImage: string | null;
   user: AccountUser | null;
   remainingSeconds: number;
-  applySessionToken: (token: string) => Promise<void>;
   cancelLogin: () => void;
   login: () => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<AccountUser | null>;
   setRemainingSeconds: (seconds: number) => void;
   setUser: (user: AccountUser | null) => void;
+  bindPhoneOpen: boolean;
+  requestPhoneBind: () => Promise<boolean>;
+  completePhoneBind: (user: AccountUser) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-
-function readTokenFromAuthUrl(url: string) {
-  try {
-    const parsed = new URL(url);
-    return parsed.searchParams.get("token")?.trim() || "";
-  } catch {
-    return "";
-  }
-}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isReady, setIsReady] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [loginQrImage, setLoginQrImage] = useState<string | null>(null);
   const [user, setUser] = useState<AccountUser | null>(null);
+  const [bindPhoneOpen, setBindPhoneOpen] = useState(false);
   const loginGeneration = useRef(0);
+  const bindWaiters = useRef<Array<(ok: boolean) => void>>([]);
 
-  const applySessionToken = useCallback(async (token: string) => {
-    persistSessionToken(token);
-    const next = await fetchMe();
-    setUser(next);
-    setLoginError(null);
-    setIsLoggingIn(false);
+  const settlePhoneBind = useCallback((ok: boolean) => {
+    setBindPhoneOpen(false);
+    const waiters = bindWaiters.current.splice(0);
+    for (const waiter of waiters) waiter(ok);
   }, []);
+
+  const requestPhoneBind = useCallback(() => {
+    if (user?.phone) return Promise.resolve(true);
+    return new Promise<boolean>((resolve) => {
+      bindWaiters.current.push(resolve);
+      setBindPhoneOpen(true);
+    });
+  }, [user?.phone]);
+
+  const completePhoneBind = useCallback(
+    (next: AccountUser) => {
+      setUser(next);
+      settlePhoneBind(true);
+    },
+    [settlePhoneBind],
+  );
+
+  useEffect(() => {
+    if (user && !user.phone) {
+      setBindPhoneOpen(true);
+      return;
+    }
+    if (user?.phone) {
+      settlePhoneBind(true);
+    }
+  }, [user, settlePhoneBind]);
 
   const refreshUser = useCallback(async () => {
     try {
@@ -82,23 +103,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refreshUser]);
 
   useEffect(() => {
-    return window.desktop.onAuthCallback((url) => {
-      const token = readTokenFromAuthUrl(url);
-      if (!token) return;
-      loginGeneration.current += 1;
-      void applySessionToken(token).catch((error: unknown) => {
-        setLoginError(error instanceof Error ? error.message : "登录失败");
-      });
+    return window.desktop.onMockInterviewVisibility((open) => {
+      if (!open) void refreshUser();
     });
-  }, [applySessionToken]);
+  }, [refreshUser]);
 
   const login = useCallback(async () => {
     const generation = ++loginGeneration.current;
     setIsLoggingIn(true);
     setLoginError(null);
+    setLoginQrImage(null);
     try {
       const started = await startWechatLogin();
-      await window.desktop.openExternal(started.start_url);
+      if (loginGeneration.current !== generation) return;
+      setLoginQrImage(started.qr_image);
 
       while (loginGeneration.current === generation) {
         const result = await waitWechatLogin(started.state2);
@@ -107,6 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           persistSessionToken(result.token);
           setUser(result.user);
           setIsLoggingIn(false);
+          setLoginQrImage(null);
           return;
         }
         if (result.status === "error") {
@@ -124,14 +143,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const cancelLogin = useCallback(() => {
     loginGeneration.current += 1;
     setIsLoggingIn(false);
+    setLoginQrImage(null);
   }, []);
 
   const logout = useCallback(async () => {
     loginGeneration.current += 1;
     setIsLoggingIn(false);
+    settlePhoneBind(false);
     await logoutAccount();
     setUser(null);
-  }, []);
+  }, [settlePhoneBind]);
 
   const setRemainingSeconds = useCallback((seconds: number) => {
     setUser((current) =>
@@ -139,30 +160,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  useEffect(() => {
+    return window.desktop.onMockInterviewRemaining((seconds) => {
+      setRemainingSeconds(seconds);
+    });
+  }, [setRemainingSeconds]);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       isReady,
       isLoggingIn,
       loginError,
+      loginQrImage,
       user,
       remainingSeconds: user?.remaining_seconds ?? 0,
-      applySessionToken,
       cancelLogin,
       login,
       logout,
       refreshUser,
       setRemainingSeconds,
       setUser,
+      bindPhoneOpen,
+      requestPhoneBind,
+      completePhoneBind,
     }),
     [
-      applySessionToken,
+      bindPhoneOpen,
       cancelLogin,
+      completePhoneBind,
       isLoggingIn,
       isReady,
       login,
       loginError,
+      loginQrImage,
       logout,
       refreshUser,
+      requestPhoneBind,
       setRemainingSeconds,
       user,
     ],
