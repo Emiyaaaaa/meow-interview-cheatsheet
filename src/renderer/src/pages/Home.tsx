@@ -19,7 +19,11 @@ import { PhoneLoginForm } from "../components/PhoneLoginForm";
 import { UpdateEntry } from "../components/UpdateEntry";
 import { useAuth } from "../context/AuthContext";
 import { useInterview } from "../context/InterviewContext";
-import { fetchWechatQrLoginEnabled, prefetchPlans } from "../services/account";
+import {
+  accountDisplayName,
+  fetchWechatQrLoginEnabled,
+  prefetchPlans,
+} from "../services/account";
 import { ContactPage } from "./Contact";
 import { InterviewPreparePage } from "./InterviewPrepare";
 import { InterviewRecordsPage } from "./InterviewRecords";
@@ -233,7 +237,7 @@ export function HomePage() {
                 </span>
               )}
               <p className="min-w-0 flex-1 truncate text-sm font-medium">
-                {user.nickname || "微信用户"}
+                {accountDisplayName(user)}
               </p>
               <Button
                 aria-label="退出登录"

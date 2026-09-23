@@ -6,6 +6,15 @@ import {
   setSessionToken,
 } from "../../../shared/session";
 
+export function accountDisplayName(user: {
+  nickname: string | null;
+  phone: string | null;
+}) {
+  const phone = user.phone?.replace(/\D/g, "") ?? "";
+  if (phone.length >= 4) return `手机号${phone.slice(-4)}用户`;
+  return user.nickname?.trim() || "微信用户";
+}
+
 export interface AccountUser {
   id: string;
   nickname: string | null;
