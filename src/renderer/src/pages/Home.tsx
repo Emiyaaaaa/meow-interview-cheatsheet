@@ -101,11 +101,7 @@ export function HomePage() {
   return (
     <div className="flex h-screen min-h-160">
       <aside className="flex w-64 shrink-0 flex-col bg-white px-4 py-5">
-        <nav
-          className="flex flex-col gap-2 mt-5 font-normal"
-          aria-label="主导航"
-        >
-          <UpdateEntry />
+        <nav className="flex flex-col gap-2 font-normal" aria-label="主导航">
           <Button
             fullWidth
             className={cn(
@@ -259,6 +255,7 @@ export function HomePage() {
               登录
             </Button>
           )}
+          <UpdateEntry />
         </div>
       </aside>
 

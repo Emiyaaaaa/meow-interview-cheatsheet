@@ -104,6 +104,7 @@ interface InterviewRecordsSetDirResult {
 }
 
 interface UpdateInfo {
+  alreadyDownloaded: boolean;
   currentVersion: string;
   fileName: string;
   githubUrl: string;
@@ -118,7 +119,7 @@ interface UpdateState {
   message?: string;
   percent: number;
   received: number;
-  status: "idle" | "checking" | "downloading" | "ready" | "error";
+  status: "idle" | "checking" | "downloading" | "paused" | "ready" | "error";
   total: number;
 }
 
@@ -159,7 +160,9 @@ interface Window {
     isMockInterviewOpen: () => Promise<boolean>;
     getMockInterviewOptions: () => Promise<MockInterviewOptions | null>;
     publishMockRemaining: (seconds: number) => void;
-    onMockInterviewVisibility: (listener: (open: boolean) => void) => () => void;
+    onMockInterviewVisibility: (
+      listener: (open: boolean) => void,
+    ) => () => void;
     onMockInterviewRemaining: (
       listener: (seconds: number) => void,
     ) => () => void;
@@ -172,6 +175,7 @@ interface Window {
     getInterviewRecord: (fileName: string) => Promise<InterviewRecord | null>;
     checkForUpdates: () => Promise<UpdateInfo>;
     startUpdateDownload: () => Promise<void>;
+    pauseUpdateDownload: () => Promise<void>;
     installUpdate: () => Promise<void>;
     onUpdateState: (listener: (state: UpdateState) => void) => () => void;
   };

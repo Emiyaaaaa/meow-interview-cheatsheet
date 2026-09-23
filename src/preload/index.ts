@@ -122,6 +122,7 @@ contextBridge.exposeInMainWorld("desktop", {
   },
   checkForUpdates: () => ipcRenderer.invoke("update:check") as Promise<UpdateInfo>,
   startUpdateDownload: () => ipcRenderer.invoke("update:start-download"),
+  pauseUpdateDownload: () => ipcRenderer.invoke("update:pause-download"),
   installUpdate: () => ipcRenderer.invoke("update:install"),
   onUpdateState: (listener: (state: UpdateState) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, state: UpdateState) => {

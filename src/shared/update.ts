@@ -2,14 +2,14 @@ export const UPDATE_REPO = "Emiyaaaaa/meow-interview-cheatsheet";
 export const UPDATE_APP = "meow-interview-cheatsheet";
 export const QINIU_CDN = "https://cdn.emiya.com.cn";
 export const QINIU_PREFIX = "desktop";
-export const GITHUB_RELEASE_API =
-  `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`;
+export const GITHUB_RELEASE_API = `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`;
 
 export type UpdatePlatformId = "mac-arm64" | "mac-x64" | "windows";
 
 export type UpdateDownloadSource = "qiniu" | "github";
 
 export type UpdateInfo = {
+  alreadyDownloaded: boolean;
   currentVersion: string;
   fileName: string;
   githubUrl: string;
@@ -21,11 +21,7 @@ export type UpdateInfo = {
 };
 
 export type UpdateStatus =
-  | "idle"
-  | "checking"
-  | "downloading"
-  | "ready"
-  | "error";
+  "idle" | "checking" | "downloading" | "paused" | "ready" | "error";
 
 export type UpdateState = {
   message?: string;

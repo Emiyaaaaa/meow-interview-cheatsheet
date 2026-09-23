@@ -10,6 +10,7 @@ import {
   ListBox,
   Modal,
   Select,
+  Spinner,
   Table,
   TextArea,
   TextField,
@@ -93,32 +94,43 @@ function sleep(ms: number) {
   });
 }
 
+function showErrorToast(title: string, description?: string) {
+  toast(title, {
+    description: description && description !== title ? description : undefined,
+    variant: "danger",
+    timeout: 0,
+  });
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
 export function RechargePage() {
   const { user, setUser, refreshUser, requestPhoneBind } = useAuth();
   const [plans, setPlans] = useState<RechargePlan[]>(
     () => getCachedPlans() ?? [],
   );
   const [orders, setOrders] = useState<AccountOrder[]>([]);
-  const [loadError, setLoadError] = useState("");
-  const [actionError, setActionError] = useState("");
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
-  const [statusText, setStatusText] = useState("");
   const [purchaseQr, setPurchaseQr] = useState<string | null>(null);
   const [purchaseQrError, setPurchaseQrError] = useState("");
   const [refundOrderId, setRefundOrderId] = useState<Key | null>(null);
   const [refundReason, setRefundReason] = useState("");
   const [refundContact, setRefundContact] = useState("");
-  const [refundError, setRefundError] = useState("");
   const [refundSubmitting, setRefundSubmitting] = useState(false);
   const [activationCode, setActivationCode] = useState("");
   const [redeeming, setRedeeming] = useState(false);
   const [epayQr, setEpayQr] = useState<string | null>(null);
   const [epayPlanTitle, setEpayPlanTitle] = useState("");
+  const [epayAmountFen, setEpayAmountFen] = useState<number | null>(null);
   const historyModal = useOverlayState();
   const refundModal = useOverlayState();
   const purchaseModal = useOverlayState();
   const pollTokenRef = useRef(0);
   const activeRef = useRef(true);
+  const purchaseLockRef = useRef(false);
+  const purchaseGenRef = useRef(0);
 
   useEffect(() => {
     activeRef.current = true;
@@ -143,15 +155,10 @@ export function RechargePage() {
     let active = true;
     void prefetchPlans()
       .then((next) => {
-        if (active) {
-          setPlans(next);
-          setLoadError("");
-        }
+        if (active) setPlans(next);
       })
       .catch((error: unknown) => {
-        if (active) {
-          setLoadError(error instanceof Error ? error.message : "套餐加载失败");
-        }
+        if (active) showErrorToast("套餐加载失败", errorMessage(error, "套餐加载失败"));
       });
     return () => {
       active = false;
@@ -186,17 +193,15 @@ export function RechargePage() {
   }
 
   async function openPurchaseModal() {
-    setActionError("");
-    setStatusText("");
     purchaseModal.open();
     if (purchaseQr) return;
     try {
       setPurchaseQrError("");
       setPurchaseQr(await fetchPurchaseQrcode());
     } catch (error) {
-      setPurchaseQrError(
-        error instanceof Error ? error.message : "购买码获取失败",
-      );
+      const message = errorMessage(error, "购买码获取失败");
+      setPurchaseQrError(message);
+      showErrorToast("购买码获取失败", message);
     }
   }
 
@@ -217,7 +222,6 @@ export function RechargePage() {
     setRefundOrderId(refundableOrders[0]?.id ?? null);
     setRefundReason("");
     setRefundContact("");
-    setRefundError("");
     refundModal.open();
   }
 
@@ -229,21 +233,18 @@ export function RechargePage() {
     }
     const code = activationCode.trim();
     if (!code) {
-      setActionError("请输入激活码");
+      showErrorToast("请输入激活码");
       return;
     }
     setRedeeming(true);
-    setActionError("");
-    setStatusText("");
     try {
       const result = await redeemActivationCode(code);
       setUser(result.user);
       setActivationCode("");
-      setStatusText("激活成功，时长已到账");
-      toast("激活码兑换成功");
+      toast.success("激活成功", { description: "时长已到账" });
       await reloadOrders();
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "兑换激活码失败");
+      showErrorToast("兑换激活码失败", errorMessage(error, "兑换激活码失败"));
     } finally {
       setRedeeming(false);
     }
@@ -253,33 +254,37 @@ export function RechargePage() {
     const orderId = typeof refundOrderId === "string" ? refundOrderId : "";
     const reason = refundReason.trim();
     if (!orderId) {
-      setRefundError("请选择退款订单");
+      showErrorToast("请选择退款订单");
       return;
     }
     if (!reason) {
-      setRefundError("请填写退款原因");
+      showErrorToast("请填写退款原因");
       return;
     }
     setRefundSubmitting(true);
-    setRefundError("");
     try {
       await applyRefund(orderId, reason, refundContact);
-      toast("退款申请已提交，请等待审核");
+      toast.success("退款申请已提交", { description: "请等待审核" });
       refundModal.close();
       await reloadOrders();
     } catch (error) {
-      setRefundError(
-        error instanceof Error ? error.message : "提交退款申请失败",
-      );
+      showErrorToast("提交退款申请失败", errorMessage(error, "提交退款申请失败"));
     } finally {
       setRefundSubmitting(false);
     }
   }
 
-  function cancelEpay() {
-    pollTokenRef.current += 1;
+  function clearEpaySession() {
     setEpayQr(null);
     setEpayPlanTitle("");
+    setEpayAmountFen(null);
+  }
+
+  function cancelEpay() {
+    pollTokenRef.current += 1;
+    purchaseGenRef.current += 1;
+    purchaseLockRef.current = false;
+    clearEpaySession();
     setPendingPlanId(null);
   }
 
@@ -293,7 +298,7 @@ export function RechargePage() {
     pollTokenRef.current = pollToken;
     setEpayQr(order.checkout_url);
     setEpayPlanTitle(plan.title);
-    setStatusText("请使用微信扫码支付");
+    setEpayAmountFen(order.amount_total);
 
     const startedAt = Date.now();
     while (
@@ -307,41 +312,40 @@ export function RechargePage() {
       if (!activeRef.current || pollTokenRef.current !== pollToken) return;
       if (latest.status === "paid") {
         await refreshUser();
-        setEpayQr(null);
-        setEpayPlanTitle("");
-        setStatusText("支付成功，时长已到账");
+        clearEpaySession();
+        toast.success("支付成功", { description: "时长已到账" });
         await reloadOrders();
         return;
       }
       if (latest.status === "failed" || latest.status === "closed") {
-        setEpayQr(null);
-        setEpayPlanTitle("");
+        clearEpaySession();
         throw new Error("支付未完成");
       }
     }
     if (pollTokenRef.current !== pollToken) return;
-    setEpayQr(null);
-    setEpayPlanTitle("");
+    clearEpaySession();
     throw new Error("等待支付超时，请稍后在订单中确认");
   }
 
   async function handlePurchase(plan: RechargePlan) {
-    if (pendingPlanId) return;
+    if (purchaseLockRef.current) return;
     if (!user) {
       toast("请登录");
       return;
     }
-    if (!plan.trial) {
-      setPendingPlanId(plan.id);
-      setActionError("");
-      setStatusText("");
-      try {
+
+    const gen = purchaseGenRef.current + 1;
+    purchaseGenRef.current = gen;
+    purchaseLockRef.current = true;
+    setPendingPlanId(plan.id);
+    try {
+      if (!plan.trial) {
         if (!user.phone) {
           const bound = await requestPhoneBind();
           if (!bound) return;
         }
         if (user.wechat_bound === false) {
-          setEpayQr(null);
+          clearEpaySession();
           await startEpay(plan);
           return;
         }
@@ -350,62 +354,28 @@ export function RechargePage() {
           void openPurchaseModal();
           return;
         }
-        setEpayQr(null);
+        clearEpaySession();
         await startEpay(plan);
-      } catch (error) {
-        setEpayQr(null);
-        setEpayPlanTitle("");
-        setActionError(error instanceof Error ? error.message : "开通失败");
-      } finally {
+        return;
+      }
+
+      setUser(await claimTrial());
+      toast.success("体验时长已到账");
+    } catch (error) {
+      clearEpaySession();
+      const fallback = plan.trial ? "领取失败" : "开通失败";
+      showErrorToast(fallback, errorMessage(error, fallback));
+    } finally {
+      if (purchaseGenRef.current === gen) {
+        purchaseLockRef.current = false;
         setPendingPlanId(null);
       }
-      return;
-    }
-
-    setPendingPlanId(plan.id);
-    setActionError("");
-    setStatusText("");
-    try {
-      setUser(await claimTrial());
-      setStatusText("体验时长已到账");
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : "领取失败");
-    } finally {
-      setPendingPlanId(null);
     }
   }
 
   return (
     <div className="mx-auto max-w-5xl px-10 py-8">
-      <h2 className="text-3xl font-semibold tracking-tight">时长充值</h2>
-      {loadError ? (
-        <p className="mt-6 text-sm text-red-600">{loadError}</p>
-      ) : null}
-      {actionError ? (
-        <p className="mt-4 text-sm text-red-600">{actionError}</p>
-      ) : null}
-      {statusText ? (
-        <p className="mt-4 text-sm text-brand">{statusText}</p>
-      ) : null}
-
-      {epayQr ? (
-        <Card className="mt-6 max-w-sm rounded-lg border border-black/10 p-5">
-          <div className="flex flex-col items-center gap-3">
-            <Label className="text-base font-semibold">
-              {epayPlanTitle || "微信支付"}
-            </Label>
-            <Description>请使用微信扫一扫完成支付</Description>
-            <div className="rounded-md bg-white p-3">
-              <QRCodeSVG value={epayQr} size={200} level="M" includeMargin />
-            </div>
-            <Button variant="outline" onPress={cancelEpay}>
-              取消支付
-            </Button>
-          </div>
-        </Card>
-      ) : null}
-
-      <div className="mt-10 grid grid-cols-2 gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-2 gap-5 lg:grid-cols-3">
         {plans.map((plan) => {
           const discountLabel = formatDiscountLabel(
             fenToYuan(plan.price_fen),
@@ -448,17 +418,22 @@ export function RechargePage() {
                 </div>
                 <Button
                   className="bg-brand/20 text-brand"
-                  isDisabled={Boolean(claimedTrial) || Boolean(pendingPlanId)}
+                  isDisabled={claimedTrial}
                   isPending={pending}
                   onPress={() => void handlePurchase(plan)}
                 >
-                  {claimedTrial
-                    ? "已领取"
-                    : plan.trial
-                      ? pending
-                        ? "领取中"
-                        : "领取"
-                      : "购买"}
+                  {({ isPending: loading }) => (
+                    <>
+                      {loading ? <Spinner color="current" size="sm" /> : null}
+                      {claimedTrial
+                        ? "已领取"
+                        : plan.trial
+                          ? loading
+                            ? "领取中"
+                            : "领取"
+                          : "购买"}
+                    </>
+                  )}
                 </Button>
               </div>
             </Card>
@@ -489,7 +464,7 @@ export function RechargePage() {
           </TextField>
           <Button
             className="bg-brand text-white"
-            isDisabled={redeeming || Boolean(pendingPlanId)}
+            isDisabled={redeeming}
             isPending={redeeming}
             onPress={() => void handleRedeem()}
           >
@@ -510,6 +485,43 @@ export function RechargePage() {
           申请退款
         </Button>
       </div>
+
+      <Modal.Backdrop
+        isOpen={epayQr != null}
+        onOpenChange={(open) => {
+          if (!open) cancelEpay();
+        }}
+      >
+        <Modal.Container size="sm">
+          <Modal.Dialog>
+            <Modal.CloseTrigger />
+            <Modal.Header>
+              <Modal.Heading>{epayPlanTitle || "微信支付"}</Modal.Heading>
+            </Modal.Header>
+            <Modal.Body className="flex flex-col items-center gap-4 text-center">
+              <div className="flex flex-col items-center gap-1">
+                <Description>付款金额</Description>
+                <p className="text-3xl font-semibold tracking-tight">
+                  {epayAmountFen == null ? "—" : formatAmount(epayAmountFen)}
+                </p>
+              </div>
+              <div className="rounded-md bg-white p-3">
+                {epayQr ? (
+                  <QRCodeSVG value={epayQr} size={200} level="M" includeMargin />
+                ) : null}
+              </div>
+              <Description className="text-center">
+                请使用微信扫一扫完成支付
+              </Description>
+            </Modal.Body>
+            <Modal.Footer>
+              <Button slot="close" variant="outline">
+                取消支付
+              </Button>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
 
       <Modal.Backdrop
         isOpen={purchaseModal.isOpen}
@@ -538,9 +550,6 @@ export function RechargePage() {
               <Description>
                 用微信扫描上方小程序码，在小程序内选择套餐完成支付。支付成功后时长会自动到账，关闭本窗口即可刷新。
               </Description>
-              {purchaseQrError ? (
-                <p className="text-sm text-red-600">{purchaseQrError}</p>
-              ) : null}
             </Modal.Body>
             <Modal.Footer>
               <Button slot="close" className="bg-brand text-white">
@@ -686,9 +695,6 @@ export function RechargePage() {
                 <Label>联系方式（选填）</Label>
                 <Input placeholder="手机号 / 微信 / 邮箱" />
               </TextField>
-              {refundError ? (
-                <p className="text-sm text-red-600">{refundError}</p>
-              ) : null}
             </Modal.Body>
             <Modal.Footer>
               <Button slot="close" variant="outline">
