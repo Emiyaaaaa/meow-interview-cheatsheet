@@ -424,11 +424,16 @@ function configurePermissionHandlers() {
           name,
         );
 
+        const headers: Record<string, string> = {
+          "User-Agent": clientUserAgent(),
+        };
+        if (accessToken) {
+          headers.Authorization = `Bearer ${accessToken}`;
+        }
+
         const response = await fetch(FILES_URL, {
           method: "POST",
-          headers: accessToken
-            ? { Authorization: `Bearer ${accessToken}` }
-            : undefined,
+          headers,
           body,
           signal: controller.signal,
         });
@@ -548,6 +553,10 @@ function configureInterviewRecordsHandlers() {
 }
 
 const UA_APP_NAME = "interview-cheatsheet";
+
+function clientUserAgent() {
+  return session.defaultSession.getUserAgent();
+}
 
 function applyAsciiUserAgent() {
   const version = app.getVersion();
