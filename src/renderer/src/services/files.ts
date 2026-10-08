@@ -1,4 +1,4 @@
-import { authHeaders, getSessionToken } from "../../../shared/session";
+import { authHeaders } from "../../../shared/session";
 import { FILES_URL } from "./config";
 
 const FILE_CACHE_KEY = "ark-file-cache";
@@ -56,7 +56,7 @@ export async function uploadResumeFile(
     }
   }
 
-  const uploaded = await postFile(file.path, options?.signal);
+  const uploaded = await postFile(file, options?.signal);
   setCachedFile(file.md5, uploaded);
   return uploaded;
 }
@@ -83,39 +83,45 @@ export async function waitForFileReady(
   }
 }
 
-async function postFile(filePath: string, signal?: AbortSignal) {
-  const requestId = crypto.randomUUID();
-  const abort = () => window.desktop.abortResumeUpload(requestId);
+async function postFile(file: ResumeFileSelection, signal?: AbortSignal) {
+  const body = new FormData();
+  body.append("purpose", "user_data");
+  body.append(
+    "file",
+    new Blob([file.bytes], { type: mimeTypeForName(file.name) }),
+    file.name,
+  );
 
-  if (signal?.aborted) {
-    abort();
-    throw new DOMException("Aborted", "AbortError");
-  }
-
-  signal?.addEventListener("abort", abort, { once: true });
-
-  try {
-    const response = await window.desktop.uploadResumeFile(
-      requestId,
-      filePath,
-      getSessionToken() ?? "",
+  const response = await fetch(FILES_URL, {
+    method: "POST",
+    headers: authHeaders(),
+    body,
+    signal,
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new FileRequestError(
+      readErrorMessage(text, response.status),
+      response.status,
     );
-    if (!response.ok) {
-      throw new FileRequestError(
-        readErrorMessage(response.body, response.status),
-        response.status,
-      );
-    }
-    const uploaded = toUploadedFile(
-      parseFileObject(response.body, response.status),
-    );
-    if (!uploaded.id) {
-      throw new FileRequestError("上传成功但未返回文件 ID", 200);
-    }
-    return uploaded;
-  } finally {
-    signal?.removeEventListener("abort", abort);
   }
+  const uploaded = toUploadedFile(parseFileObject(text, response.status));
+  if (!uploaded.id) {
+    throw new FileRequestError("上传成功但未返回文件 ID", 200);
+  }
+  return uploaded;
+}
+
+function mimeTypeForName(name: string) {
+  const ext = name.split(".").pop()?.toLowerCase();
+  if (ext === "pdf") return "application/pdf";
+  if (ext === "doc") return "application/msword";
+  if (ext === "docx") {
+    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  }
+  if (ext === "txt") return "text/plain";
+  if (ext === "md") return "text/markdown";
+  return "application/octet-stream";
 }
 
 export async function deleteResumeFile(fileId: string) {

@@ -18,9 +18,9 @@ interface SystemAudioCapabilities {
 }
 
 interface ResumeFileSelection {
+  bytes: ArrayBuffer;
   md5: string;
   name: string;
-  path: string;
 }
 
 interface OverlayQaItem {
@@ -138,14 +138,8 @@ interface Window {
     onSystemAudioError: (listener: (message: string) => void) => () => void;
     setWindowTitle: (title: string) => Promise<void>;
     pickResumeFile: () => Promise<ResumeFileSelection | null>;
-    uploadResumeFile: (
-      requestId: string,
-      filePath: string,
-      accessToken: string,
-    ) => Promise<{ body: string; ok: boolean; status: number }>;
     openExternal: (url: string) => Promise<void>;
     onAuthCallback: (listener: (url: string) => void) => () => void;
-    abortResumeUpload: (requestId: string) => void;
     showOverlay: () => Promise<void>;
     hideOverlay: () => Promise<void>;
     publishOverlayState: (state: OverlayInterviewState) => void;

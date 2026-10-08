@@ -12,7 +12,6 @@ import { AudioTee, type AudioChunk } from "audiotee";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { FILES_URL } from "../shared/api";
 import type { OverlayInterviewState } from "../shared/overlay";
 import type { PermissionKind } from "../shared/permissions";
 import {
@@ -66,8 +65,6 @@ const AUTH_PROTOCOL = "interview-cheatsheet";
 
 let coreAudioCapture: AudioTee | null = null;
 let mainWindow: BrowserWindow | null = null;
-const fileUploadAbortControllers = new Map<string, AbortController>();
-const abortedFileUploads = new Set<string>();
 let pendingAuthUrl: string | null = null;
 
 function isAuthUrl(value: string) {
@@ -130,24 +127,6 @@ function hideMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.setSkipTaskbar(true);
   mainWindow.hide();
-}
-
-function abortError() {
-  const error = new Error("Aborted");
-  error.name = "AbortError";
-  return error;
-}
-
-function mimeTypeForName(name: string) {
-  const ext = name.split(".").pop()?.toLowerCase();
-  if (ext === "pdf") return "application/pdf";
-  if (ext === "doc") return "application/msword";
-  if (ext === "docx") {
-    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-  }
-  if (ext === "txt") return "text/plain";
-  if (ext === "md") return "text/markdown";
-  return "application/octet-stream";
 }
 
 function getSystemAudioCapabilities(): {
@@ -381,10 +360,12 @@ function configurePermissionHandlers() {
 
     const filePath = result.filePaths[0];
     const data = await readFile(filePath);
+    const bytes = new ArrayBuffer(data.byteLength);
+    new Uint8Array(bytes).set(data);
     return {
+      bytes,
       md5: createHash("md5").update(data).digest("hex"),
       name: basename(filePath),
-      path: filePath,
     };
   });
 
@@ -395,74 +376,6 @@ function configurePermissionHandlers() {
     await shell.openExternal(url);
   });
 
-  ipcMain.handle(
-    "files:upload",
-    async (
-      _event,
-      requestId: string,
-      filePath: string,
-      accessToken: string,
-    ) => {
-      const controller = new AbortController();
-      fileUploadAbortControllers.set(requestId, controller);
-
-      if (abortedFileUploads.delete(requestId)) {
-        fileUploadAbortControllers.delete(requestId);
-        throw abortError();
-      }
-
-      try {
-        const data = await readFile(filePath);
-        const name = basename(filePath);
-        const copy = new ArrayBuffer(data.byteLength);
-        new Uint8Array(copy).set(data);
-        const body = new FormData();
-        body.append("purpose", "user_data");
-        body.append(
-          "file",
-          new Blob([copy], { type: mimeTypeForName(name) }),
-          name,
-        );
-
-        const headers: Record<string, string> = {
-          "User-Agent": clientUserAgent(),
-        };
-        if (accessToken) {
-          headers.Authorization = `Bearer ${accessToken}`;
-        }
-
-        const response = await fetch(FILES_URL, {
-          method: "POST",
-          headers,
-          body,
-          signal: controller.signal,
-        });
-
-        return {
-          body: await response.text(),
-          ok: response.ok,
-          status: response.status,
-        };
-      } catch (error) {
-        if (controller.signal.aborted) {
-          throw abortError();
-        }
-        throw error;
-      } finally {
-        fileUploadAbortControllers.delete(requestId);
-        abortedFileUploads.delete(requestId);
-      }
-    },
-  );
-
-  ipcMain.on("files:upload:abort", (_event, requestId: string) => {
-    const controller = fileUploadAbortControllers.get(requestId);
-    if (controller) {
-      controller.abort();
-      return;
-    }
-    abortedFileUploads.add(requestId);
-  });
 }
 
 function configureOverlayHandlers() {
@@ -553,10 +466,6 @@ function configureInterviewRecordsHandlers() {
 }
 
 const UA_APP_NAME = "interview-cheatsheet";
-
-function clientUserAgent() {
-  return session.defaultSession.getUserAgent();
-}
 
 function applyAsciiUserAgent() {
   const version = app.getVersion();

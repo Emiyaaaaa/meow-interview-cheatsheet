@@ -40,14 +40,6 @@ contextBridge.exposeInMainWorld("desktop", {
   setWindowTitle: (title: string) =>
     ipcRenderer.invoke("app:set-window-title", title),
   pickResumeFile: () => ipcRenderer.invoke("dialog:pick-resume-file"),
-  uploadResumeFile: (
-    requestId: string,
-    filePath: string,
-    accessToken: string,
-  ) => ipcRenderer.invoke("files:upload", requestId, filePath, accessToken),
-  abortResumeUpload: (requestId: string) => {
-    ipcRenderer.send("files:upload:abort", requestId);
-  },
   showOverlay: () => ipcRenderer.invoke("overlay:show"),
   hideOverlay: () => ipcRenderer.invoke("overlay:hide"),
   publishOverlayState: (state: OverlayInterviewState) => {

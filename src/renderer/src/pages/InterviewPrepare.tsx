@@ -163,9 +163,9 @@ function ApiCheckDetailList({ details }: { details: ApiCheckDetail[] }) {
 }
 
 interface SelectedResume {
+  bytes: ArrayBuffer;
   md5: string;
   name: string;
-  path: string;
 }
 
 function ApiCheckStatus({
@@ -417,9 +417,9 @@ export function InterviewPreparePage({
       const selected = await window.desktop.pickResumeFile();
       if (!selected) return;
       setResume({
+        bytes: selected.bytes,
         md5: selected.md5,
         name: selected.name,
-        path: selected.path,
       });
     } finally {
       setIsPickingResume(false);
