@@ -314,7 +314,10 @@ export function InterviewPreparePage({
   const [resumeFileId, setResumeFileId] = useState("");
   const apiCheckDetails: ApiCheckDetail[] = [
     { label: "实时语音识别接口", result: asrCheckResult },
-    { label: isMock ? "面试官提问接口" : "回答生成接口", result: chatCheckResult },
+    {
+      label: isMock ? "面试官提问接口" : "回答生成接口",
+      result: chatCheckResult,
+    },
   ];
   const apiPrepState: PrepStepState =
     apiCheckState === "ok"
@@ -483,13 +486,18 @@ export function InterviewPreparePage({
 
   return (
     <div className="mx-auto flex min-h-full max-w-4xl flex-col p-4 gap-4">
+      <p className="px-2 py-1 text-sm leading-relaxed text-foreground/70">
+        {isMock
+          ? "AI 会扮演面试官提问，你回答后获得评分与改进建议。"
+          : "实时转写面试官提问，生成可以直接开口的回答。"}
+      </p>
       <Card>
         <div className="p-2">
           <div className="flex flex-col gap-1">
             <Label>权限检查</Label>
           </div>
-          <Separator className="my-4" />
-          <div className="flex flex-col gap-4">
+          <Separator className="my-3" />
+          <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
               <Mic className="size-4" />
               <p className="flex items-center gap-1 text-sm">
@@ -512,46 +520,46 @@ export function InterviewPreparePage({
             </div>
 
             {isMock ? null : (
-            <div className="flex items-center gap-2">
-              {isLegacyMacCapture ? (
-                <MonitorUp className="size-4" />
-              ) : (
-                <Volume2 className="size-4" />
-              )}
-              <p className="flex items-center gap-1 text-sm">
-                {isMacAudioOnly
-                  ? "系统录音权限"
-                  : isLegacyMacCapture
-                    ? "屏幕录制权限"
-                    : "系统输出音频"}
-                <HelpTip
-                  title={
-                    isMacAudioOnly
-                      ? "系统录音权限"
-                      : isLegacyMacCapture
-                        ? "屏幕录制权限"
-                        : "系统输出音频"
-                  }
-                >
+              <div className="flex items-center gap-2">
+                {isLegacyMacCapture ? (
+                  <MonitorUp className="size-4" />
+                ) : (
+                  <Volume2 className="size-4" />
+                )}
+                <p className="flex items-center gap-1 text-sm">
                   {isMacAudioOnly
-                    ? `macOS ${audioCapabilities.macOSVersion} 通过「仅系统音频录制」采集电脑播放的声音，不会读取屏幕。请在系统设置 → 隐私与安全性 → 屏幕与系统音频录制 页面底部的「仅系统音频录制」中允许本应用，不要授权麦克风。`
+                    ? "系统录音权限"
                     : isLegacyMacCapture
-                      ? `macOS ${audioCapabilities.macOSVersion} 只能通过屏幕录制权限获取系统音频；应用不会保存或上传屏幕画面`
-                      : isUnsupported
-                        ? `macOS ${audioCapabilities.macOSVersion} 不支持免驱动系统音频采集，请升级至 macOS 13 或更高版本`
-                        : "Windows 支持系统音频回环，无需额外授权"}
-                </HelpTip>
-              </p>
-              <div className="flex-1" />
-              <PermissionStatus
-                granted={systemAudioPermissionsGranted}
-                grantedLabel={isMac ? "已授权" : "无需授权"}
-                isPending={isAuthorizingSystemCapture}
-                isUnsupported={isUnsupported}
-                needsSettings={needsSystemSettings}
-                onAuthorize={() => void authorizeSystemCapture()}
-              />
-            </div>
+                      ? "屏幕录制权限"
+                      : "系统输出音频"}
+                  <HelpTip
+                    title={
+                      isMacAudioOnly
+                        ? "系统录音权限"
+                        : isLegacyMacCapture
+                          ? "屏幕录制权限"
+                          : "系统输出音频"
+                    }
+                  >
+                    {isMacAudioOnly
+                      ? `macOS ${audioCapabilities.macOSVersion} 通过「仅系统音频录制」采集电脑播放的声音，不会读取屏幕。请在系统设置 → 隐私与安全性 → 屏幕与系统音频录制 页面底部的「仅系统音频录制」中允许本应用`
+                      : isLegacyMacCapture
+                        ? `macOS ${audioCapabilities.macOSVersion} 只能通过屏幕录制权限获取系统音频；应用不会保存或上传屏幕画面`
+                        : isUnsupported
+                          ? `macOS ${audioCapabilities.macOSVersion} 不支持免驱动系统音频采集，请升级至 macOS 13 或更高版本`
+                          : "Windows 支持系统音频回环，无需额外授权"}
+                  </HelpTip>
+                </p>
+                <div className="flex-1" />
+                <PermissionStatus
+                  granted={systemAudioPermissionsGranted}
+                  grantedLabel={isMac ? "已授权" : "无需授权"}
+                  isPending={isAuthorizingSystemCapture}
+                  isUnsupported={isUnsupported}
+                  needsSettings={needsSystemSettings}
+                  onAuthorize={() => void authorizeSystemCapture()}
+                />
+              </div>
             )}
 
             <div className="flex items-center gap-2">
@@ -576,56 +584,60 @@ export function InterviewPreparePage({
       </Card>
 
       {isMock ? null : (
-      <Card>
-        <RadioGroup
-          className="p-2"
-          name="capture-source"
-          value={captureSource}
-          variant="secondary"
-          onChange={(value) => setCaptureSource(value as AudioCaptureSource)}
-        >
-          <div className="mb-4">
-            <Label>选择面试官声音来源</Label>
-          </div>
-          <div className="grid gap-1 md:grid-cols-2">
-            {[
-              {
-                description:
-                  "采集电脑播放的音频，适用于面试官声音从本机扬声器输出的场景",
-                title: "系统音频输出",
-                value: "system-audio",
-              },
-              {
-                description: "采集麦克风输入作为面试官输出，适用于双设备场景",
-                title: "麦克风",
-                value: "microphone",
-              },
-            ].map((option) => (
-              <Radio className={"mt-0"} key={option.value} value={option.value}>
-                <Radio.Content className="items-start h-full group relative flex w-full flex-col gap-6 rounded-xl border border-transparent px-5 py-4 transition-all data-[selected=true]:border-brand/70 data-[selected=true]:bg-brand/5 data-[focus-visible=true]:border-accent data-[focus-visible=true]:bg-accent/10">
-                  <Radio.Control className="absolute inset-e-4 top-3 size-5 rounded-full border border-border bg-default shadow-none group-data-[pressed=true]:scale-95 group-data-[selected=true]:border-transparent group-data-[selected=true]:bg-brand">
-                    <Radio.Indicator className="before:rounded-full before:bg-default group-data-[selected=true]:before:scale-50 group-data-[selected=true]:group-data-[pressed=true]:before:scale-[0.57]" />
-                  </Radio.Control>
-                  <div className="flex flex-col gap-1 pr-8">
-                    <span>{option.title}</span>
-                    <Description className="font-normal">
-                      {option.description}
-                    </Description>
-                  </div>
-                </Radio.Content>
-              </Radio>
-            ))}
-          </div>
-        </RadioGroup>
-      </Card>
+        <Card>
+          <RadioGroup
+            className="p-2"
+            name="capture-source"
+            value={captureSource}
+            variant="secondary"
+            onChange={(value) => setCaptureSource(value as AudioCaptureSource)}
+          >
+            <div className="mb-4">
+              <Label>选择面试官声音来源</Label>
+            </div>
+            <div className="grid gap-1 md:grid-cols-2">
+              {[
+                {
+                  description:
+                    "采集电脑播放的音频，适用于面试官声音从本机扬声器（或耳机）输出的场景",
+                  title: "系统音频输出",
+                  value: "system-audio",
+                },
+                {
+                  description: "采集麦克风输入作为面试官输出，适用于双设备场景",
+                  title: "麦克风",
+                  value: "microphone",
+                },
+              ].map((option) => (
+                <Radio
+                  className={"mt-0"}
+                  key={option.value}
+                  value={option.value}
+                >
+                  <Radio.Content className="items-start h-full group relative flex w-full flex-col gap-6 rounded-xl border border-transparent px-5 py-4 transition-all data-[selected=true]:border-brand/70 data-[selected=true]:bg-brand/5 data-[focus-visible=true]:border-accent data-[focus-visible=true]:bg-accent/10">
+                    <Radio.Control className="absolute inset-e-4 top-3 size-5 rounded-full border border-border bg-default shadow-none group-data-[pressed=true]:scale-95 group-data-[selected=true]:border-transparent group-data-[selected=true]:bg-brand">
+                      <Radio.Indicator className="before:rounded-full before:bg-default group-data-[selected=true]:before:scale-50 group-data-[selected=true]:group-data-[pressed=true]:before:scale-[0.57]" />
+                    </Radio.Control>
+                    <div className="flex flex-col gap-1 pr-8">
+                      <span>{option.title}</span>
+                      <Description className="font-normal">
+                        {option.description}
+                      </Description>
+                    </div>
+                  </Radio.Content>
+                </Radio>
+              ))}
+            </div>
+          </RadioGroup>
+        </Card>
       )}
       <Card>
         <div className="p-2">
           <div className="flex flex-col gap-1">
             <Label>补充面试信息（非必填）</Label>
           </div>
-          <Separator className="my-4" />
-          <div className="flex flex-col gap-4">
+          <Separator className="my-3" />
+          <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
               <FileText className="size-4" />
               <p className="flex items-center gap-1 text-sm">
@@ -731,7 +743,7 @@ export function InterviewPreparePage({
               });
             }}
           >
-            打开面试面板
+            Debug
           </Button>
         ) : null}
         {transcriptionError && !isMock ? (

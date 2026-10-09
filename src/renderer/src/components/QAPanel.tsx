@@ -6,25 +6,45 @@ const SCROLL_THRESHOLD_PX = 48;
 
 interface TranscriptPanelProps {
   className?: string;
+  dense?: boolean;
   error: string | null;
   interimText: string;
   qaItems: InterviewQaItem[];
 }
 
-function QaCard({ item }: { item: InterviewQaItem }) {
+function QaCard({ dense, item }: { dense?: boolean; item: InterviewQaItem }) {
   return (
     <Card
-      className="border border-black/6 bg-[#f8f8f8] shadow-none"
+      className={cn(
+        "border border-black/6 bg-[#f8f8f8] shadow-none",
+        dense ? "gap-1 p-2" : undefined,
+      )}
       variant="secondary"
     >
-      <Card.Header className="gap-1">
-        <Card.Title className="text-sm">面试官</Card.Title>
-        <Card.Description className="text-sm leading-6 text-foreground">
+      <Card.Header className={dense ? "gap-0.5" : "gap-1"}>
+        <Card.Description
+          className={cn(
+            "text-foreground",
+            dense ? "text-[13px] leading-5" : "text-sm leading-6",
+          )}
+        >
           {item.question}
         </Card.Description>
       </Card.Header>
-      <Card.Content className="border-t border-black/6 pt-3">
-        <p className="mb-2 text-xs font-medium text-muted">AI 回答</p>
+      <Card.Content
+        className={cn(
+          "border-t border-black/6",
+          dense ? "gap-1 pt-1.5" : "pt-3",
+        )}
+      >
+        <p
+          className={cn(
+            "text-xs font-medium text-muted",
+            dense ? "mb-0.5" : "mb-2",
+          )}
+        >
+          AI 回答
+        </p>
         {item.status === "error" ? (
           <p className="text-sm text-red-600">{item.error ?? "获取回答失败"}</p>
         ) : item.status === "loading" && !item.answer ? (
@@ -34,7 +54,12 @@ function QaCard({ item }: { item: InterviewQaItem }) {
           </div>
         ) : (
           <div>
-            <p className="text-sm leading-7 text-foreground whitespace-pre-wrap">
+            <p
+              className={cn(
+                "whitespace-pre-wrap text-foreground",
+                dense ? "text-[13px] leading-5" : "text-sm leading-7",
+              )}
+            >
               {item.answer}
             </p>
             {item.status === "loading" ? (
@@ -49,6 +74,7 @@ function QaCard({ item }: { item: InterviewQaItem }) {
 
 export function QAPanel({
   className,
+  dense,
   error,
   interimText,
   qaItems,
@@ -79,50 +105,69 @@ export function QAPanel({
         className,
       )}
     >
-      <div className="flex items-center justify-between border-b border-black/6 px-6 py-4">
-        <span className="flex items-center gap-2 text-xs text-muted">
-          <span className="size-2 rounded-full animate-pulse bg-brand" />
-          正在识别
-        </span>
-      </div>
-
-      <Card.Content aria-live="polite" className="flex min-h-0 flex-1 flex-col p-0">
+      <Card.Content
+        aria-live="polite"
+        className="flex min-h-0 flex-1 flex-col p-0"
+      >
         <div
           ref={scrollRef}
           onScroll={updateIsAtBottom}
-          className="min-h-0 flex-1 overflow-y-auto px-6 py-5"
+          className={cn(
+            "min-h-0 flex-1 overflow-y-auto",
+            dense ? "px-2 py-1.5" : "px-6 py-5",
+          )}
         >
-        {error ? (
-          <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">
-            {error}
-          </div>
-        ) : null}
-
-        {hasContent ? (
-          <div className="space-y-3">
-            {qaItems.map((item) => (
-              <QaCard item={item} key={item.id} />
-            ))}
-            {interimText ? (
-              <Card className="border border-dashed border-black/10 bg-white shadow-none">
-                <Card.Header>
-                  <Card.Title className="text-sm text-muted">
-                    正在识别
-                  </Card.Title>
-                  <Card.Description className="text-sm leading-6">
-                    {interimText}
-                  </Card.Description>
-                </Card.Header>
-              </Card>
-            ) : null}
-          </div>
-        ) : (
-          <div className="grid place-items-center text-center min-h-36">
-            <div>
-              <p className="text-sm text-foreground/60">正在聆听…</p>
+          {error ? (
+            <div
+              className={cn(
+                "rounded-lg bg-red-50 text-sm text-red-600",
+                dense ? "px-2.5 py-1.5" : "rounded-xl px-4 py-3",
+              )}
+            >
+              {error}
             </div>
-          </div>
-        )}
+          ) : null}
+
+          {hasContent ? (
+            <div className={dense ? "space-y-1.5" : "space-y-3"}>
+              {qaItems.map((item) => (
+                <QaCard dense={dense} item={item} key={item.id} />
+              ))}
+              {interimText ? (
+                <Card
+                  className={cn(
+                    "border border-dashed border-black/10 bg-white shadow-none",
+                    dense ? "gap-1 p-2" : undefined,
+                  )}
+                >
+                  <Card.Header className={dense ? "gap-0.5" : undefined}>
+                    <Card.Title className="flex items-center gap-1.5 text-xs text-muted">
+                      <span className="size-1.5 animate-pulse rounded-full bg-brand" />
+                      正在识别
+                    </Card.Title>
+                    <Card.Description
+                      className={
+                        dense ? "text-[13px] leading-5" : "text-sm leading-6"
+                      }
+                    >
+                      {interimText}
+                    </Card.Description>
+                  </Card.Header>
+                </Card>
+              ) : null}
+            </div>
+          ) : (
+            <div
+              className={cn(
+                "grid place-items-center text-center",
+                dense ? "min-h-20" : "min-h-36",
+              )}
+            >
+              <div>
+                <p className="text-sm text-foreground/60">正在聆听…</p>
+              </div>
+            </div>
+          )}
         </div>
       </Card.Content>
     </Card>

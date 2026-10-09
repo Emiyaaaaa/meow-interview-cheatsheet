@@ -22,7 +22,7 @@ function InterviewChrome({
     <div
       className={
         overlay
-          ? "flex h-screen flex-col p-2 text-foreground"
+          ? "flex h-screen flex-col p-1 text-foreground"
           : "flex h-screen flex-col bg-[#f4f4f4] p-4 text-foreground"
       }
     >
@@ -36,11 +36,17 @@ function InterviewChrome({
         <header
           className={
             overlay
-              ? "app-drag mb-0 flex items-center justify-between px-3 py-2"
+              ? "app-drag mb-0 flex items-center justify-between px-2 py-1"
               : "mb-2 flex items-center justify-between"
           }
         >
-          <div className="flex items-center gap-2 rounded-full border border-black/8 bg-white/80 px-3 py-1 shadow-sm">
+          <div
+            className={
+              overlay
+                ? "flex items-center gap-1.5 rounded-full border border-black/8 bg-white/80 px-2 py-0.5 shadow-sm"
+                : "flex items-center gap-2 rounded-full border border-black/8 bg-white/80 px-3 py-1 shadow-sm"
+            }
+          >
             <span className="size-1.5 animate-pulse rounded-full bg-brand" />
             <span className="text-xs text-muted">面试中</span>
           </div>
@@ -56,13 +62,20 @@ function InterviewChrome({
           </Button>
         </header>
 
-        <div className="flex min-h-0 flex-1 flex-col px-2 pb-2">
+        <div
+          className={
+            overlay
+              ? "flex min-h-0 flex-1 flex-col px-1 pb-1"
+              : "flex min-h-0 flex-1 flex-col"
+          }
+        >
           <QAPanel
             className={
               overlay
                 ? "mt-0 border-white/40 bg-white/40 shadow-none"
                 : undefined
             }
+            dense={overlay}
             error={error}
             interimText={interimText}
             qaItems={qaItems}

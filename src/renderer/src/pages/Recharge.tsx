@@ -374,7 +374,7 @@ export function RechargePage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-10 py-8">
+    <div className="mx-auto flex min-h-full max-w-5xl flex-col px-10 py-8">
       <div className="grid grid-cols-2 gap-5 lg:grid-cols-3">
         {plans.map((plan) => {
           const discountLabel = formatDiscountLabel(
@@ -417,7 +417,7 @@ export function RechargePage() {
                   </span>
                 </div>
                 <Button
-                  className="bg-brand/20 text-brand"
+                  className="bg-brand text-white"
                   isDisabled={claimedTrial}
                   isPending={pending}
                   onPress={() => void handlePurchase(plan)}
@@ -441,7 +441,7 @@ export function RechargePage() {
         })}
       </div>
 
-      <Card className="mt-10 max-w-xl rounded-lg border border-black/6 p-4">
+      <Card className="mt-10 w-full max-w-xl self-center rounded-lg border border-black/6 p-4">
         <div className="flex flex-col gap-1">
           <Label className="text-lg font-semibold">激活码兑换</Label>
         </div>
@@ -473,17 +473,23 @@ export function RechargePage() {
         </div>
       </Card>
 
-      <div className="mt-12 flex justify-center gap-3 border-t border-black/6 pt-8">
-        <Button variant="outline" onPress={historyModal.open}>
+      <div className="mt-auto flex items-center justify-center gap-3 pt-10 text-sm text-muted">
+        <button
+          type="button"
+          className="cursor-pointer appearance-none bg-transparent p-0 hover:underline"
+          onClick={() => historyModal.open()}
+        >
           充值记录
-        </Button>
-        <Button
-          isDisabled={Boolean(user) && refundableOrders.length === 0}
-          variant="outline"
-          onPress={openRefundModal}
+        </button>
+        <span aria-hidden="true">|</span>
+        <button
+          type="button"
+          className="cursor-pointer appearance-none bg-transparent p-0 hover:underline disabled:cursor-not-allowed disabled:no-underline disabled:opacity-40"
+          disabled={Boolean(user) && refundableOrders.length === 0}
+          onClick={openRefundModal}
         >
           申请退款
-        </Button>
+        </button>
       </div>
 
       <Modal.Backdrop

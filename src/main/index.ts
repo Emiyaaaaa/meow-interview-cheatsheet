@@ -118,6 +118,9 @@ function preloadPath() {
 
 function restoreMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (process.platform === "darwin") {
+    void app.dock?.show().catch(() => undefined);
+  }
   mainWindow.setSkipTaskbar(false);
   mainWindow.show();
   mainWindow.focus();
@@ -127,6 +130,10 @@ function hideMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.setSkipTaskbar(true);
   mainWindow.hide();
+  // 先藏程序坞图标，再由 showOverlayWindow 设置置顶和全屏可见。
+  if (process.platform === "darwin") {
+    app.dock?.hide();
+  }
 }
 
 function getSystemAudioCapabilities(): {

@@ -68,6 +68,23 @@ interface InterviewContextValue {
 
 const InterviewContext = createContext<InterviewContextValue | null>(null);
 
+const DEBUG_QA_ITEMS: InterviewQaItem[] = [
+  {
+    id: "debug-qa-1",
+    question: "请介绍一下你最近负责的一个项目，你在里面具体做了什么？",
+    answer:
+      "最近我在做一款面试辅助桌面应用。我负责实时语音识别和问答面板：把面试官的问题转成文字，再流式生成可以直接口述的回答，并保证悬浮窗在共享屏幕时不可见。",
+    status: "ready",
+  },
+  {
+    id: "debug-qa-2",
+    question: "如果线上识别延迟比较高，你会怎么优化用户看到的反馈？",
+    answer:
+      "未定稿的句子单独显示在底部，标成正在识别；定稿后再进入正式问答卡片。列表默认贴底滚动，用户往上翻时暂停自动滚动，避免把正在看的内容顶走。",
+    status: "ready",
+  },
+];
+
 function permissionKindForMode(
   mode: SystemAudioCaptureMode,
 ): PermissionKind | null {
@@ -115,6 +132,7 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
   const recordSaverRef = useRef(createThrottledRecordSaver());
   const qaItemsRef = useRef<InterviewQaItem[]>([]);
   const elapsedSecondsRef = useRef(0);
+  const debugSessionRef = useRef(false);
 
   const abortPendingChats = useCallback(() => {
     for (const controller of chatControllersRef.current.values()) {
@@ -150,7 +168,9 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
       const resumeFileId = resumeFileIdRef.current || undefined;
       const direction = interviewDirectionRef.current;
       const systemPrompt = [
-        "你是候选人的面试答题助手。根据面试官的问题给出可直接口述的回答，重点清晰、简洁专业，不要复述问题。",
+        "你是候选人的面试答题助手。写出候选人开口就能说的回答，语气自然，像真人在面试里说话，不要写成文章、提纲或 AI 腔。",
+        "简洁，通常两三句：先说结论，必要时再补一个具体例子，说完就停。用「我」来讲，句子短。",
+        "不要复述问题，不要分点、小标题或列表，也不要用「首先、其次、最后、综上所述」。少用套话和书面词，例如「赋能、闭环、深度、全面、显著提升」。",
         direction ? `面试方向：${direction}。` : "",
         resumeFileId
           ? "已通过文件提供候选人简历，请结合简历中的经历与技能作答。"
@@ -266,7 +286,7 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
   }, [isStarted]);
 
   useEffect(() => {
-    if (!isStarted) return;
+    if (!isStarted || debugSessionRef.current) return;
     const session = recordSessionRef.current;
     if (!session) return;
     recordSaverRef.current.schedule(
@@ -431,6 +451,7 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
 
   const resetInterviewSession = useCallback(
     (options?: { interviewDirection?: string; resumeFileId?: string }) => {
+      debugSessionRef.current = false;
       setTranscriptionError(null);
       abortPendingChats();
       interviewDirectionRef.current = options?.interviewDirection?.trim() ?? "";
@@ -509,11 +530,15 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
           return;
         }
         resetInterviewSession(options);
-        recordSessionRef.current = beginInterviewSession(
-          "assistant",
-          options?.interviewDirection,
-        );
+        debugSessionRef.current = true;
+        setQaItems(DEBUG_QA_ITEMS);
         setIsStarted(true);
+        window.desktop.publishOverlayState({
+          elapsedSeconds: 0,
+          interimTranscript: "",
+          qaItems: DEBUG_QA_ITEMS,
+          transcriptionError: null,
+        });
         void window.desktop.showOverlay().catch((error: unknown) => {
           console.error("无法打开面试悬浮窗", error);
         });
@@ -523,6 +548,7 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
   );
 
   const stopInterview = useCallback(() => {
+    debugSessionRef.current = false;
     transcriptionRef.current?.stop();
     abortPendingChats();
     setIsStarted(false);
@@ -565,7 +591,7 @@ export function InterviewProvider({ children }: { children: ReactNode }) {
   }, [abortPendingChats]);
 
   useEffect(() => {
-    if (!isStarted) return;
+    if (!isStarted || debugSessionRef.current) return;
 
     let lastAt = Date.now();
     let stoppingForQuota = false;
